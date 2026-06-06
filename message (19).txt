@@ -1,0 +1,1228 @@
+--[[
+    ╔══════════════════════════════════════════════════════════════╗
+    ║          UE RIVALS — ULTIMATE RAGE LUA  v5                  ║
+    ║  Reload · Horizon Resolver · Adaptive Void · Full GUI        ║
+    ║                     by Xorfee                               ║
+    ╚══════════════════════════════════════════════════════════════╝
+
+    RESOLVER CREDIT: Horizon v2.1 (resolver architecture + methods)
+    Fused with our per-yaw adaptive scoring, bruteforce fallback,
+    and adaptive void position prediction.
+
+    LOAD ORDER: Run BEFORE or alongside UE's main loader.
+
+    FEATURES
+    ────────────────────────────────────────────────────────────────
+    [1]  Reload exploit    – zeroes bow/slingshot, 0.09 daggers
+    [2]  Reload loop       – re-patches every 8s
+    [3]  No-spread         – zeroes spread/bloom/recoil
+    [4]  Full-auto patch   – semi → auto
+    [5]  Standard Resolver – Velocity / History / BodyPart / Hybrid
+                             Auto-learns per player, 3 phases:
+                             Collecting → Testing → Optimized
+                             Desync intensity tracking built in
+    [6]  Anti-Bait Resolver– 6 methods: PreVoid / VelExtrap /
+                             AltBody / NetPos / RevPred / Hybrid
+                             Advanced weighted multi-resolve when
+                             enemy is confirmed advanced config
+    [7]  Yaw Scoring       – per-player yaw offset scoring table
+                             +1.2 on hit, -0.4 on miss, 0.85× decay
+                             Bruteforce sweep after 6 consecutive misses
+    [8]  Adaptive Void Res – detects void abusers, picks best of
+                             Extrapolate/Average/Last per player
+                             based on which historically lands hits
+    [9]  Self anti-void    – teleports local back if voided
+    [10] FPS uncap
+    [11] Anti-AFK
+    [12] GUI               – draggable, lower-left toggle, mobile-safe
+
+    GLOBALS: getgenv().UERage
+        .CFG               live config table
+        .VoidTargets        [player] = CFrame | nil
+        .OnHit(player)      call when shot connects
+        .OnMiss(player)     call when shot misses
+        .GetYaw(player)     current best yaw offset (degrees)
+        .DB                 full resolver database
+    ────────────────────────────────────────────────────────────────
+]]
+
+-- ─────────────────────────────────────────────────────────────────
+--  SERVICES
+-- ─────────────────────────────────────────────────────────────────
+local RunService        = game:GetService("RunService");
+local Players           = game:GetService("Players");
+local ReplicatedStorage = game:GetService("ReplicatedStorage");
+local UserInputService  = game:GetService("UserInputService");
+local TweenService      = game:GetService("TweenService");
+
+local LocalPlayer = Players.LocalPlayer;
+
+local function GetChar()  return LocalPlayer.Character; end
+local function GetRoot()  local c = GetChar(); return c and c:FindFirstChild("HumanoidRootPart"); end
+local function GetHuman() local c = GetChar(); return c and c:FindFirstChildOfClass("Humanoid"); end
+
+-- ─────────────────────────────────────────────────────────────────
+--  CONFIG
+-- ─────────────────────────────────────────────────────────────────
+local CFG = {
+    -- Exploits
+    ReloadExploit    = true,
+    ReloadLoop       = true,
+    NoSpread         = true,
+    FullAuto         = true,
+
+    -- Standard Resolver
+    Resolver         = true,
+    AutoLearn        = true,
+
+    -- Anti-Bait Resolver
+    AntiBait         = true,
+    AdvancedMode     = true,   -- weighted multi-resolve for advanced configs
+
+    -- Yaw scoring (feeds into UE aimbot override)
+    YawScoring       = true,
+    DecayRate        = 0.85,   -- how fast old yaw samples decay
+    BruteThresh      = 6,      -- consecutive misses before bruteforce
+    WarmupShots      = 4,      -- shots before trusting yaw scores
+
+    -- Adaptive void resolver
+    AntiVoidResolve  = true,
+    VoidThreshold    = -150,
+    VoidResolveMode  = "Adaptive", -- "Adaptive"|"Extrapolate"|"Average"|"Last"
+
+    -- Self protection
+    SelfAntiVoid     = true,
+    SelfVoidY        = -200,
+
+    -- Misc
+    FPSUncap         = true,
+    AntiAFK          = true,
+};
+
+-- ─────────────────────────────────────────────────────────────────
+--  [1]+[2]  RELOAD EXPLOIT
+-- ─────────────────────────────────────────────────────────────────
+local ReloadOverrides = { bow = 0, slingshot = 0, daggers = 0.09 };
+
+local function ApplyReload(Items)
+    if not CFG.ReloadExploit then return; end;
+    for _, Item in Items do
+        local name = Item.Name:lower();
+        local val  = ReloadOverrides[name];
+        if val ~= nil and rawget(Item, "ReloadLength") then
+            rawset(Item, "ReloadLength", val);
+        end;
+    end;
+end;
+
+task.spawn(function()
+    local mods = ReplicatedStorage:WaitForChild("Modules", 10);
+    if not mods then return; end;
+    local ok, IL = pcall(require, mods:WaitForChild("ItemLibrary", 10));
+    if not ok or not IL then return; end;
+    local Items = rawget(IL, "Items");
+    if not Items then return; end;
+    ApplyReload(Items);
+    if CFG.ReloadLoop then
+        task.spawn(function()
+            while task.wait(8) do ApplyReload(Items); end;
+        end);
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [3]  NO-SPREAD
+-- ─────────────────────────────────────────────────────────────────
+task.spawn(function()
+    if not CFG.NoSpread then return; end;
+    local mods = ReplicatedStorage:FindFirstChild("Modules");
+    if not mods then return; end;
+    for _, mod in mods:GetChildren() do
+        if mod:IsA("ModuleScript") then
+            task.spawn(function()
+                local ok, data = pcall(require, mod);
+                if not ok or type(data) ~= "table" then return; end;
+                for k, v in pairs(data) do
+                    if type(v) == "number" then
+                        local lk = tostring(k):lower();
+                        if lk:find("spread") or lk:find("bloom") or lk:find("recoil") or lk:find("accuracy") then
+                            rawset(data, k, 0);
+                        end;
+                    end;
+                end;
+            end);
+        end;
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [4]  FULL-AUTO PATCH
+-- ─────────────────────────────────────────────────────────────────
+task.spawn(function()
+    if not CFG.FullAuto then return; end;
+    local mods = ReplicatedStorage:WaitForChild("Modules", 10);
+    if not mods then return; end;
+    local ok, IL = pcall(require, mods:WaitForChild("ItemLibrary", 10));
+    if not ok or not IL then return; end;
+    local Items = rawget(IL, "Items");
+    if not Items then return; end;
+    for _, Item in Items do
+        if rawget(Item, "FireMode") and tostring(rawget(Item, "FireMode")):lower() == "semi" then
+            rawset(Item, "FireMode", "auto");
+        end;
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  RESOLVER DATABASE
+--  Per-player state holding both the Horizon-style method learning
+--  AND our per-yaw scoring system.
+-- ─────────────────────────────────────────────────────────────────
+
+-- Learning phases (from Horizon)
+local Phase = { Collecting = "collecting", Testing = "testing", Optimized = "optimized" };
+
+-- Standard resolver methods (from Horizon)
+local RMethod = { Velocity = "velocity", History = "history", BodyPart = "bodypart", Hybrid = "hybrid" };
+local RMethodList = { RMethod.Velocity, RMethod.History, RMethod.BodyPart, RMethod.Hybrid };
+
+-- Anti-bait methods (from Horizon)
+local ABMethod = { PreVoid = "prevoid", VelExtrap = "velextrap", AltBody = "altbody", NetPos = "netpos", RevPred = "revpred", Hybrid = "hybrid" };
+local ABMethodList = { ABMethod.PreVoid, ABMethod.VelExtrap, ABMethod.AltBody, ABMethod.NetPos, ABMethod.RevPred, ABMethod.Hybrid };
+
+-- Yaw candidates (ours)
+local YAW_CANDIDATES = { 0, 180, 58, -58, 90, -90, 135, -135, 27, -27 };
+
+-- Void resolve modes (ours)
+local VOID_MODES = { "Extrapolate", "Average", "Last" };
+
+local function NewYawScores()
+    local t = {};
+    for _, y in YAW_CANDIDATES do t[y] = 1.0; end;
+    return t;
+end
+
+local function NewVoidScores()
+    local t = {};
+    for _, m in VOID_MODES do t[m] = 1.0; end;
+    return t;
+end
+
+local function NewMethodAccuracy(list)
+    local t = {};
+    for _, m in list do t[m] = 0; end;
+    return t;
+end
+
+local function NewPlayerState()
+    return {
+        -- Position tracking
+        positionHistory  = {},  -- last 20 positions
+        velocityHistory  = {},  -- last 10 velocities
+        avgVelocity      = Vector3.zero,
+        isDesyncing      = false,
+        desyncIntensity  = 0,
+
+        -- Standard resolver
+        rMethod          = RMethod.Velocity,
+        rBestMethod      = RMethod.Velocity,
+        rMethodAcc       = NewMethodAccuracy(RMethodList),
+        rPhase           = Phase.Collecting,
+        rSamples         = 0,
+        rTestStart       = 0,
+        rTestIdx         = 1,
+        rLastAccCheck    = 0,
+        rConfidence      = 0,
+        rOptimalPred     = 0.145,  -- prediction time (seconds)
+        resolvedPos      = nil,
+
+        -- Anti-bait resolver
+        abMethod         = ABMethod.PreVoid,
+        abBestMethod     = ABMethod.PreVoid,
+        abMethodAcc      = NewMethodAccuracy(ABMethodList),
+        abPhase          = Phase.Collecting,
+        abSamples        = 0,
+        abTestStart      = 0,
+        abTestIdx        = 1,
+        abConfidence     = 0,
+        abResolvedPos    = nil,
+
+        -- Bait tracking
+        isInVoid         = false,
+        posBeforeVoid    = nil,
+        velBeforeVoid    = Vector3.zero,
+        voidEntryTime    = nil,
+        timeInVoid       = 0,
+        shootsFromVoid   = false,
+        baitActivations  = 0,
+        isAdvancedCfg    = false,
+        cfgQuality       = 0,
+        hitsOnThem       = 0,
+        missesOnThem     = 0,
+        killsOnThem      = 0,
+        deathsToThem     = 0,
+
+        -- Yaw scoring (ours)
+        yawScores        = NewYawScores(),
+        lastYaw          = 0,
+        totalShots       = 0,
+        missStreak       = 0,
+        bruteActive      = false,
+        bruteIdx         = 1,
+
+        -- Void position prediction (ours)
+        voidScores       = NewVoidScores(),
+        lastVoidMode     = "Extrapolate",
+        lastAboveVoidPos = nil,
+        voidResolved     = nil,
+    };
+end
+
+local DB = {};
+
+local function GetDB(player)
+    if not DB[player] then DB[player] = NewPlayerState(); end;
+    return DB[player];
+end
+
+for _, p in Players:GetPlayers() do
+    if p ~= LocalPlayer then GetDB(p); end;
+end;
+Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then GetDB(p); end; end);
+Players.PlayerRemoving:Connect(function(p) DB[p] = nil; end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  UTILITY
+-- ─────────────────────────────────────────────────────────────────
+local function IsAlive(p)
+    local c = p.Character;
+    if not c then return false; end;
+    local h = c:FindFirstChildOfClass("Humanoid");
+    return h and h.Health > 0;
+end
+
+local function GetPos(p)
+    local c = p.Character;
+    if not c then return nil; end;
+    local r = c:FindFirstChild("HumanoidRootPart");
+    return r and r.Position or nil;
+end
+
+local function GetVel(p)
+    local c = p.Character;
+    if not c then return Vector3.zero; end;
+    local r = c:FindFirstChild("HumanoidRootPart");
+    return r and r.AssemblyLinearVelocity or Vector3.zero;
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  POSITION HISTORY TRACKING  (Heartbeat)
+-- ─────────────────────────────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    for player, rd in pairs(DB) do
+        if not IsAlive(player) then continue; end;
+        local c = player.Character;
+        local root = c and c:FindFirstChild("HumanoidRootPart");
+        if not root then continue; end;
+
+        local pos = root.Position;
+        local vel = root.AssemblyLinearVelocity;
+        local now = tick();
+
+        -- Position history (max 20)
+        table.insert(rd.positionHistory, pos);
+        if #rd.positionHistory > 20 then table.remove(rd.positionHistory, 1); end;
+
+        -- Velocity history (max 10)
+        table.insert(rd.velocityHistory, vel);
+        if #rd.velocityHistory > 10 then table.remove(rd.velocityHistory, 1); end;
+
+        -- Average velocity
+        local vsum = Vector3.zero;
+        for _, v in rd.velocityHistory do vsum += v; end;
+        rd.avgVelocity = vsum / math.max(1, #rd.velocityHistory);
+
+        -- Desync intensity: large frame-to-frame delta = desyncing
+        if #rd.positionHistory >= 2 then
+            local delta = (rd.positionHistory[#rd.positionHistory] - rd.positionHistory[#rd.positionHistory-1]).Magnitude;
+            if delta > 10 then
+                rd.isDesyncing    = true;
+                rd.desyncIntensity = math.min(100, rd.desyncIntensity + 10);
+            else
+                rd.desyncIntensity = math.max(0, rd.desyncIntensity - 2);
+                if rd.desyncIntensity < 20 then rd.isDesyncing = false; end;
+            end;
+        end;
+
+        -- Void tracking (per-player)
+        if pos.Y < CFG.VoidThreshold then
+            if not rd.isInVoid then
+                rd.posBeforeVoid   = pos;
+                rd.velBeforeVoid   = vel;
+                rd.voidEntryTime   = now;
+                rd.isInVoid        = true;
+                rd.baitActivations += 1;
+            end;
+            rd.timeInVoid = now - (rd.voidEntryTime or now);
+            if c:FindFirstChildOfClass("Tool") then rd.shootsFromVoid = true; end;
+        else
+            rd.isInVoid        = false;
+            rd.lastAboveVoidPos = pos;
+            rd.voidEntryTime   = nil;
+        end;
+
+        rd.rSamples += 1;
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [5]  STANDARD RESOLVER METHODS  (from Horizon)
+-- ─────────────────────────────────────────────────────────────────
+local function R_Velocity(c, rd)
+    local root = c:FindFirstChild("HumanoidRootPart");
+    if not root then return nil; end;
+    return root.Position + (root.AssemblyLinearVelocity * rd.rOptimalPred);
+end
+
+local function R_History(c, rd)
+    local root = c:FindFirstChild("HumanoidRootPart");
+    if not root then return nil; end;
+    if #rd.positionHistory < 3 then return root.Position; end;
+    local sum, n = Vector3.zero, math.min(#rd.positionHistory, 5);
+    for i = #rd.positionHistory - n + 1, #rd.positionHistory do
+        sum += rd.positionHistory[i];
+    end;
+    return sum / n;
+end
+
+local function R_BodyPart(c, rd)
+    local torso = c:FindFirstChild("UpperTorso") or c:FindFirstChild("Torso");
+    if torso then return torso.Position; end;
+    local root = c:FindFirstChild("HumanoidRootPart");
+    return root and root.Position or nil;
+end
+
+local function R_Hybrid(c, rd)
+    local vp = R_Velocity(c, rd);
+    local hp = R_History(c, rd);
+    if not vp or not hp then return vp or hp; end;
+    -- Blend: high desync = lean on history, low desync = lean on velocity
+    return hp:Lerp(vp, 1 - (rd.desyncIntensity / 100));
+end
+
+local function GetStandardResolved(player, rd)
+    local c = player.Character;
+    if not c then return nil; end;
+    local m = rd.rMethod;
+    if m == RMethod.Velocity  then return R_Velocity(c, rd);
+    elseif m == RMethod.History   then return R_History(c, rd);
+    elseif m == RMethod.BodyPart  then return R_BodyPart(c, rd);
+    elseif m == RMethod.Hybrid    then return R_Hybrid(c, rd);
+    end;
+    return nil;
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  STANDARD RESOLVER LEARNING  (from Horizon, adapted)
+-- ─────────────────────────────────────────────────────────────────
+local function UpdateStandardLearning(rd)
+    if not CFG.AutoLearn then return; end;
+    local now = tick();
+
+    if rd.rPhase == Phase.Collecting then
+        if rd.rSamples >= 80 then
+            rd.rPhase    = Phase.Testing;
+            rd.rTestStart = now;
+            rd.rSamples   = 0;
+        end;
+
+    elseif rd.rPhase == Phase.Testing then
+        if now - rd.rTestStart > 8 then
+            rd.rTestIdx += 1;
+            if rd.rTestIdx > #RMethodList then
+                -- Pick best method
+                local bestM, bestA = RMethod.Velocity, 0;
+                for m, a in pairs(rd.rMethodAcc) do
+                    if a > bestA then bestM = m; bestA = a; end;
+                end;
+                rd.rBestMethod = bestM;
+                rd.rMethod     = bestM;
+                rd.rPhase      = Phase.Optimized;
+                rd.rConfidence = math.min(100, bestA);
+            else
+                rd.rMethod    = RMethodList[rd.rTestIdx];
+                rd.rTestStart = now;
+            end;
+        end;
+
+    elseif rd.rPhase == Phase.Optimized then
+        -- Occasional random probe to catch if enemy changes behavior
+        if now - rd.rLastAccCheck > 25 then
+            rd.rMethod       = math.random(1,12) == 1
+                and RMethodList[math.random(1,#RMethodList)]
+                or  rd.rBestMethod;
+            rd.rLastAccCheck = now;
+        end;
+        rd.rConfidence = math.min(100, rd.rMethodAcc[rd.rBestMethod] or 0);
+    end;
+end
+
+local function UpdateStandardAccuracy(rd)
+    if not CFG.AutoLearn then return; end;
+    local base = 50;
+    local m    = rd.rMethod;
+    if rd.isDesyncing then
+        if m == RMethod.History or m == RMethod.Hybrid then base += 30;
+        elseif m == RMethod.Velocity then base += 10; end;
+    else
+        if m == RMethod.Velocity then base += 35;
+        elseif m == RMethod.BodyPart then base += 25; end;
+    end;
+    base = math.clamp(base + math.random(-10, 10), 0, 100);
+    rd.rMethodAcc[m] = (rd.rMethodAcc[m] * 0.8) + (base * 0.2);
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  [6]  ANTI-BAIT RESOLVER METHODS  (from Horizon)
+-- ─────────────────────────────────────────────────────────────────
+local function AB_PreVoid(c, rd)
+    if rd.posBeforeVoid then return rd.posBeforeVoid; end;
+    local root = c:FindFirstChild("HumanoidRootPart");
+    return root and root.Position or nil;
+end
+
+local function AB_VelExtrap(c, rd)
+    if not rd.posBeforeVoid or not rd.velBeforeVoid then return nil; end;
+    local elapsed = rd.voidEntryTime and (tick() - rd.voidEntryTime) or 0;
+    -- Clamp: don't extrapolate more than 3 seconds
+    elapsed = math.min(elapsed, 3);
+    return rd.posBeforeVoid + (rd.velBeforeVoid * elapsed);
+end
+
+local function AB_AltBody(c, rd)
+    local parts = {
+        c:FindFirstChild("Head"),
+        c:FindFirstChild("UpperTorso"),
+        c:FindFirstChild("Torso"),
+        c:FindFirstChild("LowerTorso"),
+    };
+    -- First try: any part above void
+    for _, pt in ipairs(parts) do
+        if pt and pt:IsA("BasePart") and pt.Position.Y > CFG.VoidThreshold then
+            return pt.Position;
+        end;
+    end;
+    -- Fallback: any part at all
+    for _, pt in ipairs(parts) do
+        if pt and pt:IsA("BasePart") then return pt.Position; end;
+    end;
+    return nil;
+end
+
+local function AB_NetPos(c, rd)
+    -- Try network owner trick; fall back to altbody
+    local root = c:FindFirstChild("HumanoidRootPart");
+    if not root then return nil; end;
+    local ok, owner = pcall(function() return root:GetNetworkOwner(); end);
+    if ok and owner then return AB_AltBody(c, rd); end;
+    return root.Position;
+end
+
+local function AB_RevPred(c, rd)
+    local root = c:FindFirstChild("HumanoidRootPart");
+    if not root then return nil; end;
+    -- Reverse prediction: subtract velocity to find where they were
+    return root.Position - (root.AssemblyLinearVelocity * 0.15);
+end
+
+local function AB_Hybrid(c, rd)
+    local candidates = {
+        AB_PreVoid(c, rd),
+        AB_VelExtrap(c, rd),
+        AB_AltBody(c, rd),
+    };
+    local valid = {};
+    for _, p in ipairs(candidates) do if p then table.insert(valid, p); end; end;
+    if #valid == 0 then return nil; end;
+    local sum = Vector3.zero;
+    for _, p in ipairs(valid) do sum += p; end;
+    return sum / #valid;
+end
+
+-- Advanced weighted multi-resolve (from Horizon's advMultiResolve)
+local function AB_AdvancedWeighted(c, rd)
+    local methods = {
+        { fn = AB_PreVoid,   key = ABMethod.PreVoid  },
+        { fn = AB_VelExtrap, key = ABMethod.VelExtrap },
+        { fn = AB_AltBody,   key = ABMethod.AltBody  },
+        { fn = AB_NetPos,    key = ABMethod.NetPos   },
+        { fn = AB_RevPred,   key = ABMethod.RevPred  },
+    };
+    local totalWeight = 0;
+    local weightedPos = Vector3.zero;
+    for _, entry in ipairs(methods) do
+        local pos = entry.fn(c, rd);
+        if pos then
+            local w = math.max(0.1, (rd.abMethodAcc[entry.key] or 0) / 100);
+            weightedPos += pos * w;
+            totalWeight  += w;
+        end;
+    end;
+    if totalWeight > 0 then return weightedPos / totalWeight; end;
+    return nil;
+end
+
+local function GetAntiBaitResolved(player, rd)
+    local c = player.Character;
+    if not c then return nil; end;
+
+    -- Use advanced weighted multi-resolve for confirmed advanced configs
+    if CFG.AdvancedMode and rd.isAdvancedCfg then
+        return AB_AdvancedWeighted(c, rd);
+    end;
+
+    local m = rd.abMethod;
+    if m == ABMethod.PreVoid   then return AB_PreVoid(c, rd);
+    elseif m == ABMethod.VelExtrap then return AB_VelExtrap(c, rd);
+    elseif m == ABMethod.AltBody   then return AB_AltBody(c, rd);
+    elseif m == ABMethod.NetPos    then return AB_NetPos(c, rd);
+    elseif m == ABMethod.RevPred   then return AB_RevPred(c, rd);
+    elseif m == ABMethod.Hybrid    then return AB_Hybrid(c, rd);
+    end;
+    return nil;
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  ANTI-BAIT LEARNING  (from Horizon, adapted)
+-- ─────────────────────────────────────────────────────────────────
+local function DetectAdvancedConfig(rd)
+    local q = 0;
+    if rd.baitActivations > 5 then q += 20; end;
+    if rd.deathsToThem > 0 and rd.killsOnThem / rd.deathsToThem > 2 then q += 30; end;
+    local ts = rd.hitsOnThem + rd.missesOnThem;
+    if ts > 10 and rd.hitsOnThem / ts < 0.3 then q += 25; end;
+    if rd.timeInVoid > 10 then q += 15; end;
+    if rd.shootsFromVoid then q += 10; end;
+    rd.cfgQuality    = math.clamp(q, 0, 100);
+    rd.isAdvancedCfg = q >= 50;
+    return rd.isAdvancedCfg;
+end
+
+local function UpdateABLearning(rd)
+    if not CFG.AutoLearn then return; end;
+    local now = tick();
+
+    if rd.abPhase == Phase.Collecting then
+        if rd.abSamples >= 50 then
+            rd.abPhase    = Phase.Testing;
+            rd.abTestStart = now;
+            rd.abSamples   = 0;
+        end;
+
+    elseif rd.abPhase == Phase.Testing then
+        if now - rd.abTestStart > 8 then
+            rd.abTestIdx += 1;
+            if rd.abTestIdx > #ABMethodList then
+                local bestM, bestA = ABMethod.PreVoid, 0;
+                for m, a in pairs(rd.abMethodAcc) do
+                    if a > bestA then bestM = m; bestA = a; end;
+                end;
+                rd.abBestMethod = bestM;
+                rd.abMethod     = bestM;
+                rd.abPhase      = Phase.Optimized;
+                rd.abConfidence = math.min(100, bestA);
+            else
+                rd.abMethod    = ABMethodList[rd.abTestIdx];
+                rd.abTestStart = now;
+            end;
+        end;
+
+    elseif rd.abPhase == Phase.Optimized then
+        rd.abMethod = rd.abBestMethod;
+    end;
+end
+
+local function UpdateABAccuracy(rd)
+    if not CFG.AutoLearn then return; end;
+    local base = 40;
+    local m    = rd.abMethod;
+    if rd.shootsFromVoid then
+        if m == ABMethod.AltBody then base += 35;
+        elseif m == ABMethod.Hybrid then base += 30; end;
+    end;
+    if rd.timeInVoid > 2 then
+        if m == ABMethod.VelExtrap then base += 25;
+        elseif m == ABMethod.PreVoid then base += 20; end;
+    end;
+    if CFG.AdvancedMode and rd.isAdvancedCfg then
+        base += 15;
+        local kd = rd.killsOnThem / math.max(1, rd.deathsToThem);
+        if kd > 1 then base += 10; end;
+        local ts = rd.hitsOnThem + rd.missesOnThem;
+        if ts > 5 then base += (rd.hitsOnThem / ts) * 20; end;
+    end;
+    base = math.clamp(base + math.random(-15, 15), 0, 100);
+    local blend = CFG.AdvancedMode and 0.5 or 0.3;
+    rd.abMethodAcc[m] = (rd.abMethodAcc[m] * (1 - blend)) + (base * blend);
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  [7]  YAW SCORING SYSTEM  (ours)
+-- ─────────────────────────────────────────────────────────────────
+local function DecayYaw(rd)
+    for y in pairs(rd.yawScores) do
+        rd.yawScores[y] *= CFG.DecayRate;
+    end;
+end
+
+local function BestYaw(rd)
+    local bestY, bestS = 0, -math.huge;
+    for y, s in pairs(rd.yawScores) do
+        if s > bestS then bestY = y; bestS = s; end;
+    end;
+    return bestY;
+end
+
+local function GetYaw(player)
+    if not CFG.YawScoring then return 0; end;
+    local rd = DB[player];
+    if not rd then return 0; end;
+
+    -- Warmup: cycle all candidates first to get baseline data
+    if rd.totalShots < CFG.WarmupShots then
+        local idx = (rd.totalShots % #YAW_CANDIDATES) + 1;
+        rd.lastYaw = YAW_CANDIDATES[idx];
+        return rd.lastYaw;
+    end;
+
+    -- Bruteforce sweep if stuck on a miss streak
+    if rd.bruteActive then
+        rd.bruteIdx  = (rd.bruteIdx % #YAW_CANDIDATES) + 1;
+        rd.lastYaw   = YAW_CANDIDATES[rd.bruteIdx];
+        return rd.lastYaw;
+    end;
+
+    rd.lastYaw = BestYaw(rd);
+    return rd.lastYaw;
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  HIT / MISS CALLBACKS  (wire these into UE or your shoot hook)
+-- ─────────────────────────────────────────────────────────────────
+local function OnHit(player)
+    local rd = DB[player];
+    if not rd then return; end;
+
+    DecayYaw(rd);
+    if rd.yawScores[rd.lastYaw] then
+        rd.yawScores[rd.lastYaw] += 1.2;
+    end;
+
+    -- Boost the AB method that was active during this hit
+    if rd.isInVoid then
+        local vm = rd.lastVoidMode;
+        rd.voidScores[vm] = (rd.voidScores[vm] or 1) + 1.2;
+        rd.hitsOnThem    += 1;
+        local am = rd.abMethod;
+        rd.abMethodAcc[am] = math.min(100, (rd.abMethodAcc[am] or 0) + 5);
+    else
+        rd.hitsOnThem    += 1;
+        local sm = rd.rMethod;
+        rd.rMethodAcc[sm] = math.min(100, (rd.rMethodAcc[sm] or 0) + 5);
+    end;
+
+    rd.missStreak  = 0;
+    rd.bruteActive = false;
+    rd.totalShots += 1;
+end
+
+local function OnMiss(player)
+    local rd = DB[player];
+    if not rd then return; end;
+
+    DecayYaw(rd);
+    if rd.yawScores[rd.lastYaw] then
+        rd.yawScores[rd.lastYaw] = math.max(0, rd.yawScores[rd.lastYaw] - 0.4);
+    end;
+
+    -- Penalise current resolver method
+    if rd.isInVoid then
+        local vm = rd.lastVoidMode;
+        rd.voidScores[vm] = math.max(0, (rd.voidScores[vm] or 1) - 0.4);
+        rd.missesOnThem  += 1;
+        local am = rd.abMethod;
+        rd.abMethodAcc[am] = math.max(0, (rd.abMethodAcc[am] or 0) - 3);
+    else
+        rd.missesOnThem  += 1;
+        local sm = rd.rMethod;
+        rd.rMethodAcc[sm] = math.max(0, (rd.rMethodAcc[sm] or 0) - 3);
+    end;
+
+    rd.missStreak += 1;
+    rd.totalShots += 1;
+
+    -- Trigger bruteforce after threshold
+    if rd.missStreak >= CFG.BruteThresh then
+        rd.bruteActive = true;
+        rd.bruteIdx    = 1;
+        -- Reset yaw scores for a clean sweep
+        for y in pairs(rd.yawScores) do rd.yawScores[y] = 1.0; end;
+        rd.missStreak  = 0;
+    end;
+end
+
+-- ─────────────────────────────────────────────────────────────────
+--  MAIN RESOLVER LOOP  (Heartbeat)
+-- ─────────────────────────────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    for player, rd in pairs(DB) do
+        if not IsAlive(player) then continue; end;
+
+        -- Standard resolver
+        if CFG.Resolver then
+            UpdateStandardLearning(rd);
+            UpdateStandardAccuracy(rd);
+            rd.resolvedPos = GetStandardResolved(player, rd);
+        end;
+
+        -- Anti-bait resolver (only when player is in void)
+        if CFG.AntiBait and rd.isInVoid then
+            rd.abSamples += 1;
+            DetectAdvancedConfig(rd);
+            UpdateABLearning(rd);
+            UpdateABAccuracy(rd);
+            rd.abResolvedPos = GetAntiBaitResolved(player, rd);
+        end;
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [8]  ADAPTIVE VOID POSITION RESOLVER  (ours)
+--  Runs separately — picks the best position prediction mode
+--  per player based on which historically scores hits.
+-- ─────────────────────────────────────────────────────────────────
+local VoidTargets = {};
+
+local function VoidExtrapolate(rd)
+    local h = rd.positionHistory;
+    if #h < 2 then return h[#h] and h[#h] or nil; end;
+    local n   = math.min(6, #h);
+    local old = h[#h - n + 1];
+    local new = h[#h];
+    -- positionHistory stores Vector3 directly
+    local dt  = n / 60; -- approximate: ~n frames at 60fps
+    if dt <= 0 then return new; end;
+    local vel = (new - old) / dt;
+    if vel.Magnitude > 120 then vel = vel.Unit * 120; end;
+    return new + vel * (1/60);
+end
+
+local function VoidAverage(rd)
+    local h = rd.positionHistory;
+    if #h == 0 then return nil; end;
+    local n = math.min(10, #h);
+    local sum = Vector3.zero;
+    for i = #h - n + 1, #h do sum += h[i]; end;
+    return sum / n;
+end
+
+local function BestVoidMode(rd)
+    local bestM, bestS = "Extrapolate", -math.huge;
+    for m, s in pairs(rd.voidScores) do
+        if s > bestS then bestM = m; bestS = s; end;
+    end;
+    return bestM;
+end
+
+RunService.Heartbeat:Connect(function()
+    if not CFG.AntiVoidResolve then VoidTargets = {}; return; end;
+
+    for player, rd in pairs(DB) do
+        if not IsAlive(player) then VoidTargets[player] = nil; continue; end;
+        local c    = player.Character;
+        local root = c and c:FindFirstChild("HumanoidRootPart");
+        if not root then continue; end;
+
+        if root.Position.Y < CFG.VoidThreshold then
+            -- Pick resolve mode
+            local mode = CFG.VoidResolveMode;
+            if mode == "Adaptive" then mode = BestVoidMode(rd); end;
+            rd.lastVoidMode = mode;
+
+            local resolved;
+            if mode == "Extrapolate" then
+                resolved = VoidExtrapolate(rd);
+            elseif mode == "Average" then
+                resolved = VoidAverage(rd);
+            else
+                resolved = rd.lastAboveVoidPos;
+            end;
+
+            -- Also blend in anti-bait resolved position if available
+            if rd.abResolvedPos and resolved then
+                resolved = resolved:Lerp(rd.abResolvedPos, 0.4);
+            elseif rd.abResolvedPos then
+                resolved = rd.abResolvedPos;
+            end;
+
+            if resolved then
+                local safeY = math.max(resolved.Y, CFG.VoidThreshold + 20);
+                VoidTargets[player] = CFrame.new(resolved.X, safeY, resolved.Z);
+            end;
+        else
+            VoidTargets[player] = nil;
+        end;
+
+        rd.voidResolved = VoidTargets[player];
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [9]  SELF ANTI-VOID
+-- ─────────────────────────────────────────────────────────────────
+local lastSafe = nil;
+LocalPlayer.CharacterAdded:Connect(function() lastSafe = nil; end);
+
+RunService.Heartbeat:Connect(function()
+    if not CFG.SelfAntiVoid then return; end;
+    local root  = GetRoot();
+    local human = GetHuman();
+    if not root or not human or human.Health <= 0 then return; end;
+    local y = root.Position.Y;
+    if y > CFG.SelfVoidY + 60 then lastSafe = root.Position; end;
+    if y < CFG.SelfVoidY then
+        if lastSafe then
+            root.CFrame = CFrame.new(lastSafe + Vector3.new(0, 5, 0));
+        else
+            local sp = workspace:FindFirstChildOfClass("SpawnLocation");
+            if sp then root.CFrame = sp.CFrame + Vector3.new(0, 5, 0); end;
+        end;
+    end;
+end);
+
+-- ─────────────────────────────────────────────────────────────────
+--  [10] FPS UNCAP
+-- ─────────────────────────────────────────────────────────────────
+if CFG.FPSUncap and setfpscap then pcall(setfpscap, 0); end;
+
+-- ─────────────────────────────────────────────────────────────────
+--  [11] ANTI-AFK
+-- ─────────────────────────────────────────────────────────────────
+if CFG.AntiAFK then
+    local VU = game:GetService("VirtualUser");
+    LocalPlayer.Idled:Connect(function()
+        VU:CaptureController();
+        VU:ClickButton2(Vector2.new());
+    end);
+end;
+
+-- ─────────────────────────────────────────────────────────────────
+--  GLOBAL EXPOSE
+-- ─────────────────────────────────────────────────────────────────
+if getgenv then
+    getgenv().UERage = {
+        CFG         = CFG,
+        DB          = DB,
+        VoidTargets = VoidTargets,
+        OnHit       = OnHit,
+        OnMiss      = OnMiss,
+        GetYaw      = GetYaw,
+        -- Expose per-player resolved positions for UE aimbot override
+        GetResolved = function(player)
+            local rd = DB[player];
+            if not rd then return nil; end;
+            -- Priority: void target > anti-bait > standard
+            return VoidTargets[player]
+                or (rd.abResolvedPos and CFrame.new(rd.abResolvedPos))
+                or (rd.resolvedPos   and CFrame.new(rd.resolvedPos))
+                or nil;
+        end,
+    };
+end;
+
+-- ─────────────────────────────────────────────────────────────────
+--  [12] GUI
+-- ─────────────────────────────────────────────────────────────────
+local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end
+
+local GUI_PARENT;
+pcall(function() if gethui then GUI_PARENT = gethui(); end; end);
+if not GUI_PARENT or typeof(GUI_PARENT) ~= "Instance" then
+    GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
+end;
+
+local _old = GUI_PARENT:FindFirstChild("UERageGui");
+if _old then _old:Destroy(); end;
+
+local ScreenGui = Instance.new("ScreenGui");
+ScreenGui.Name           = "UERageGui";
+ScreenGui.ResetOnSpawn   = false;
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+ScreenGui.IgnoreGuiInset = true;
+ScreenGui.DisplayOrder   = 999;
+ScreenGui.Parent         = GUI_PARENT;
+
+local function MakeCorner(p, r)
+    local c = Instance.new("UICorner", p);
+    c.CornerRadius = UDim.new(0, r or 6);
+end
+local function MakeStroke(p, col, t)
+    local s = Instance.new("UIStroke", p);
+    s.Color = col; s.Thickness = t or 1;
+end
+local function MakeFrame(parent, props)
+    local f = Instance.new("Frame");
+    f.BackgroundTransparency = 1;
+    f.BorderSizePixel = 0;
+    f.Parent = parent;
+    for k,v in pairs(props or {}) do f[k] = v; end;
+    return f;
+end
+local function MakeLabel(parent, props)
+    local l = Instance.new("TextLabel");
+    l.BackgroundTransparency = 1;
+    l.BorderSizePixel = 0;
+    l.Parent = parent;
+    for k,v in pairs(props or {}) do l[k] = v; end;
+    return l;
+end
+local function MakeBtn(parent, props)
+    local b = Instance.new("TextButton");
+    b.BackgroundTransparency = 1;
+    b.BorderSizePixel = 0;
+    b.AutoButtonColor = false;
+    b.Text = "";
+    b.Parent = parent;
+    for k,v in pairs(props or {}) do b[k] = v; end;
+    return b;
+end
+
+-- Toggle button (lower-left)
+local ToggleBtn = MakeBtn(ScreenGui, {
+    Size             = UDim2.new(0,40,0,40),
+    Position         = UDim2.new(0,12,1,-52),
+    BackgroundColor3 = RGB(10,10,15),
+    BackgroundTransparency = 0,
+    Text             = "UE",
+    TextColor3       = RGB(74,158,255),
+    TextSize         = 12,
+    Font             = Enum.Font.GothamBold,
+    ZIndex           = 200,
+});
+MakeCorner(ToggleBtn, 6);
+MakeStroke(ToggleBtn, RGB(26,42,64), 1);
+
+-- Panel
+local Panel = MakeFrame(ScreenGui, {
+    Size             = UDim2.new(0,215,0,32),
+    Position         = UDim2.new(0,12,1,-98),
+    BackgroundColor3 = RGB(8,8,13),
+    BackgroundTransparency = 0,
+    ClipsDescendants = true,
+    Visible          = false,
+    ZIndex           = 199,
+});
+MakeCorner(Panel, 6);
+MakeStroke(Panel, RGB(21,32,48), 1);
+
+-- Title bar
+local TitleBar = MakeFrame(Panel, {
+    Size             = UDim2.new(1,0,0,30),
+    BackgroundColor3 = RGB(13,26,42),
+    BackgroundTransparency = 0,
+    ZIndex           = 200,
+});
+MakeCorner(TitleBar, 6);
+
+-- Pulse dot
+local Dot = MakeFrame(TitleBar, {
+    Size             = UDim2.new(0,6,0,6),
+    Position         = UDim2.new(0,10,0.5,-3),
+    BackgroundColor3 = RGB(0,220,120),
+    BackgroundTransparency = 0,
+    ZIndex           = 201,
+});
+MakeCorner(Dot, 10);
+task.spawn(function()
+    while ScreenGui.Parent do
+        TweenService:Create(Dot,
+            TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
+            {BackgroundTransparency = 0.75}
+        ):Play();
+        task.wait(1.8);
+    end;
+end);
+
+MakeLabel(TitleBar, {
+    Size       = UDim2.new(1,0,1,0),
+    Text       = "UE RAGE",
+    TextColor3 = RGB(74,158,255),
+    TextSize   = 11,
+    Font       = Enum.Font.GothamBold,
+    ZIndex     = 201,
+});
+
+-- Scroll list
+local ScrollFrame = Instance.new("ScrollingFrame");
+ScrollFrame.Size                   = UDim2.new(1,0,1,-30);
+ScrollFrame.Position               = UDim2.new(0,0,0,30);
+ScrollFrame.BackgroundTransparency = 1;
+ScrollFrame.BorderSizePixel        = 0;
+ScrollFrame.ScrollBarThickness     = 2;
+ScrollFrame.ScrollBarImageColor3   = RGB(30,58,90);
+ScrollFrame.CanvasSize             = UDim2.new(0,0,0,0);
+ScrollFrame.AutomaticCanvasSize    = Enum.AutomaticSize.Y;
+ScrollFrame.ZIndex                 = 200;
+ScrollFrame.Parent                 = Panel;
+
+local Layout = Instance.new("UIListLayout", ScrollFrame);
+Layout.Padding   = UDim.new(0,1);
+Layout.SortOrder = Enum.SortOrder.LayoutOrder;
+
+local ListPad = Instance.new("UIPadding", ScrollFrame);
+ListPad.PaddingLeft   = UDim.new(0,8);
+ListPad.PaddingRight  = UDim.new(0,8);
+ListPad.PaddingTop    = UDim.new(0,4);
+ListPad.PaddingBottom = UDim.new(0,8);
+
+local function Section(text, order)
+    local s = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=order, ZIndex=200});
+    MakeLabel(s, {Size=UDim2.new(1,0,1,0), Text=text, TextColor3=RGB(40,70,100),
+        TextSize=9, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
+end
+
+local function Row(label, cfgKey, order)
+    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
+    MakeLabel(row, {Size=UDim2.new(1,-40,1,0), Text=label, TextColor3=RGB(138,168,200),
+        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
+
+    local pill = MakeBtn(row, {
+        Size=UDim2.new(0,32,0,16), Position=UDim2.new(1,-32,0.5,-8),
+        BackgroundColor3=RGB(26,26,42), BackgroundTransparency=0, ZIndex=201});
+    MakeCorner(pill, 8);
+
+    local knob = MakeFrame(pill, {
+        Size=UDim2.new(0,11,0,11), Position=UDim2.new(0,2,0.5,-5),
+        BackgroundColor3=RGB(74,74,106), BackgroundTransparency=0, ZIndex=202});
+    MakeCorner(knob, 6);
+
+    local function Refresh()
+        local on = CFG[cfgKey];
+        pill.BackgroundColor3 = on and RGB(26,90,255) or RGB(26,26,42);
+        TweenService:Create(knob, TweenInfo.new(0.13), {
+            Position         = on and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
+            BackgroundColor3 = on and RGB(160,200,255) or RGB(74,74,106),
+        }):Play();
+    end;
+    Refresh();
+
+    pill.MouseButton1Click:Connect(function()
+        CFG[cfgKey] = not CFG[cfgKey];
+        Refresh();
+    end);
+end
+
+local function DropRow(label, cfgKey, options, order)
+    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
+    MakeLabel(row, {Size=UDim2.new(1,-82,1,0), Text=label, TextColor3=RGB(138,168,200),
+        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
+
+    local btn = MakeBtn(row, {
+        Size=UDim2.new(0,76,0,18), Position=UDim2.new(1,-76,0.5,-9),
+        BackgroundColor3=RGB(13,26,42), BackgroundTransparency=0,
+        TextColor3=RGB(74,158,255), TextSize=9, Font=Enum.Font.GothamBold,
+        Text=tostring(CFG[cfgKey]), ZIndex=201});
+    MakeCorner(btn, 3);
+
+    local idx = 1;
+    for i,v in ipairs(options) do if tostring(v) == tostring(CFG[cfgKey]) then idx=i; break; end; end;
+
+    btn.MouseButton1Click:Connect(function()
+        idx = (idx % #options) + 1;
+        CFG[cfgKey] = options[idx];
+        btn.Text = tostring(options[idx]);
+    end);
+end
+
+-- Build rows
+Section("EXPLOIT",      0);
+Row("Reload Exploit",     "ReloadExploit",   1);
+Row("Reload Loop",        "ReloadLoop",       2);
+Row("No Spread",          "NoSpread",         3);
+Row("Full Auto",          "FullAuto",         4);
+Section("RESOLVER",    10);
+Row("Standard Resolver",  "Resolver",         11);
+Row("Auto-Learn",         "AutoLearn",        12);
+Row("Anti-Bait",          "AntiBait",         13);
+Row("Advanced Mode",      "AdvancedMode",     14);
+Row("Yaw Scoring",        "YawScoring",       15);
+Section("VOID RES",    20);
+Row("Anti-Void Resolve",  "AntiVoidResolve",  21);
+DropRow("Mode",           "VoidResolveMode",  {"Adaptive","Extrapolate","Average","Last"}, 22);
+Section("PROTECTION",  30);
+Row("Self Anti-Void",     "SelfAntiVoid",     31);
+Row("Anti-AFK",           "AntiAFK",          32);
+Row("FPS Uncap",          "FPSUncap",         33);
+
+-- Auto-resize
+local function ResizePanel()
+    local h   = Layout.AbsoluteContentSize.Y + 30 + 12;
+    local cap = math.min(h, 360);
+    local px  = Panel.Position.X.Offset;
+    Panel.Size     = UDim2.new(0,215,0,cap);
+    Panel.Position = UDim2.new(0,px,1,-(cap+52));
+end;
+Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ResizePanel);
+task.defer(ResizePanel);
+
+-- Open/close
+local PanelOpen = false;
+local function TogglePanel()
+    PanelOpen = not PanelOpen;
+    Panel.Visible = PanelOpen;
+    ToggleBtn.BackgroundColor3 = PanelOpen and RGB(13,26,42) or RGB(10,10,15);
+end;
+ToggleBtn.MouseButton1Click:Connect(TogglePanel);
+
+-- Drag
+do
+    local dragging = false;
+    local dragStart = Vector2.zero;
+    local startPX, startPY = 0, 0;
+
+    TitleBar.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true;
+            dragStart = Vector2.new(inp.Position.X, inp.Position.Y);
+            startPX   = Panel.Position.X.Offset;
+            startPY   = Panel.Position.Y.Offset;
+        end;
+    end);
+
+    TitleBar.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = false;
+        end;
+    end);
+
+    UserInputService.InputChanged:Connect(function(inp)
+        if not dragging then return; end;
+        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return; end;
+        local dx = inp.Position.X - dragStart.X;
+        local dy = inp.Position.Y - dragStart.Y;
+        Panel.Position     = UDim2.new(0, startPX+dx, 1, startPY+dy);
+        ToggleBtn.Position = UDim2.new(0, startPX+dx, 1, startPY+dy+Panel.AbsoluteSize.Y+6);
+    end);
+end;
+
+-- ─────────────────────────────────────────────────────────────────
+--  DONE
+-- ─────────────────────────────────────────────────────────────────
+print("[UE Rage v5] Loaded");
+print("  Standard Resolver:  " .. (CFG.Resolver and "ON" or "OFF"));
+print("  Anti-Bait Resolver: " .. (CFG.AntiBait and "ON" or "OFF"));
+print("  Void Resolver:      " .. CFG.VoidResolveMode);
+print("  Auto-Learn:         " .. (CFG.AutoLearn and "ON" or "OFF"));
