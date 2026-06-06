@@ -901,12 +901,294 @@ RunService.Heartbeat:Connect(function()
 end);
 
 -- ─────────────────────────────────────────────────────────────────
---  [10] FPS UNCAP
+--  [10] VOID SPAM  (desync + random teleport fusion)
+--
+--  HOW IT WORKS:
+--    Heartbeat  → teleports HRP server-side to a random huge coord
+--                 AND randomises velocity/angular velocity
+--    RenderStep → snaps everything back client-side at First priority
+--                 so locally you never move
+--
+--  This means the SERVER sees you at a random position every frame
+--  while the CLIENT (you) sees yourself standing still. Classic
+--  desync void — unhittable, looks normal on your end.
+--
+--  DEVICE DETECTION:
+--    Mobile  → draggable void button (lower-left area)
+--    PC      → "Press G to toggle Void" hint at bottom-center
+--              G key toggles it
+-- ─────────────────────────────────────────────────────────────────
+
+-- ── Config ───────────────────────────────────────────────────────
+local VOID_CFG = {
+    Enabled      = false,
+    -- How far to scatter server position (stay within int32 safe range)
+    ScatterMin   = 9999,
+    ScatterMax   = 2000000000,
+    -- Dead zone in the middle so you don't accidentally land near origin
+    DeadZoneMin  = 500000000,
+};
+
+-- ── betterRandom: avoids dead zone around 0 ──────────────────────
+local function BetterRandom(mi, ma, dmi, dma)
+    local val = math.random(mi, ma);
+    local tries = 0;
+    repeat
+        val   = math.random(mi, ma);
+        tries += 1;
+    until val < dmi or val > dma or tries > 20;
+    return val;
+end;
+
+local function RandomScatter()
+    local mn  = VOID_CFG.ScatterMin;
+    local mx  = VOID_CFG.ScatterMax;
+    local dmn = VOID_CFG.DeadZoneMin;
+    local function Axis()
+        return BetterRandom(mn, mx, dmn, mx) * (math.random(0,1) == 0 and -1 or 1);
+    end;
+    return Axis(), Axis(), Axis();
+end;
+
+-- ── State ─────────────────────────────────────────────────────────
+local VS_hrp      = nil;
+local VS_clientCF = nil;
+local VS_clientLV = nil;
+local VS_clientAV = nil;
+local VS_heartbeat = nil;
+local VS_renderstep = nil;
+
+local function VS_Start()
+    if VS_heartbeat then return; end;
+
+    -- Heartbeat: desync server position every frame
+    VS_heartbeat = RunService.Heartbeat:Connect(function()
+        if not VOID_CFG.Enabled then return; end;
+        pcall(function()
+            VS_hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");
+            if not VS_hrp then return; end;
+
+            -- Save real client state before scatter
+            VS_clientCF = VS_hrp.CFrame;
+            VS_clientLV = VS_hrp.AssemblyLinearVelocity;
+            VS_clientAV = VS_hrp.AssemblyAngularVelocity;
+
+            -- Scatter server-side
+            local sx, sy, sz = RandomScatter();
+            VS_hrp.CFrame = CFrame.new(sx, sy, sz)
+                          * CFrame.Angles(math.rad(math.pi), math.rad(math.pi), math.rad(math.pi));
+            VS_hrp.AssemblyLinearVelocity = Vector3.new(
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1),
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1),
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1)
+            );
+            VS_hrp.AssemblyAngularVelocity = Vector3.new(
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1),
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1),
+                BetterRandom(10000, 2000000000, 500000000, 2000000000) * (math.random(0,1)==0 and -1 or 1)
+            );
+        end);
+    end);
+
+    -- RenderStep: snap back client-side at highest priority BEFORE render
+    VS_renderstep = RunService:BindToRenderStep("UEVoidSync",
+        Enum.RenderPriority.First.Value,
+        function()
+            if not VOID_CFG.Enabled then return; end;
+            if VS_hrp and VS_clientCF then
+                pcall(function()
+                    VS_hrp.CFrame                  = VS_clientCF;
+                    VS_hrp.AssemblyLinearVelocity  = VS_clientLV;
+                    VS_hrp.AssemblyAngularVelocity = VS_clientAV;
+                end);
+            end;
+        end
+    );
+end;
+
+local function VS_Stop()
+    if VS_heartbeat    then VS_heartbeat:Disconnect();   VS_heartbeat    = nil; end;
+    if VS_renderstep   then RunService:UnbindFromRenderStep("UEVoidSync"); VS_renderstep = nil; end;
+    VS_hrp = nil;
+end;
+
+local function VS_Toggle()
+    VOID_CFG.Enabled = not VOID_CFG.Enabled;
+    if VOID_CFG.Enabled then
+        VS_Start();
+    else
+        VS_Stop();
+    end;
+    return VOID_CFG.Enabled;
+end;
+
+-- Restart on respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    VS_hrp      = nil;
+    VS_clientCF = nil;
+    VS_clientLV = nil;
+    VS_clientAV = nil;
+end);
+
+-- ── Device detection ─────────────────────────────────────────────
+local IsMobile = UserInputService.TouchEnabled
+              and not UserInputService.KeyboardEnabled;
+
+-- ── Void UI ──────────────────────────────────────────────────────
+local VS_GUI_PARENT;
+pcall(function() if gethui then VS_GUI_PARENT = gethui(); end; end);
+if not VS_GUI_PARENT or typeof(VS_GUI_PARENT) ~= "Instance" then
+    VS_GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
+end;
+
+local function RGB2(r,g,b) return Color3.fromRGB(r,g,b); end;
+
+if IsMobile then
+    -- ── MOBILE: draggable void button ────────────────────────────
+    local vsGui = Instance.new("ScreenGui");
+    vsGui.Name           = "UEVoidBtn";
+    vsGui.ResetOnSpawn   = false;
+    vsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+    vsGui.IgnoreGuiInset = true;
+    vsGui.DisplayOrder   = 998;
+    vsGui.Parent         = VS_GUI_PARENT;
+
+    local vBtn = Instance.new("TextButton");
+    vBtn.Size             = UDim2.new(0,64,0,30);
+    vBtn.Position         = UDim2.new(0,12,1,-100);
+    vBtn.BackgroundColor3 = RGB2(40,10,10);
+    vBtn.BackgroundTransparency = 0;
+    vBtn.BorderSizePixel  = 0;
+    vBtn.Text             = "VOID";
+    vBtn.TextColor3       = RGB2(255,80,80);
+    vBtn.TextSize         = 12;
+    vBtn.Font             = Enum.Font.GothamBold;
+    vBtn.ZIndex           = 300;
+    vBtn.AutoButtonColor  = false;
+    vBtn.Parent           = vsGui;
+    do
+        local c = Instance.new("UICorner", vBtn);
+        c.CornerRadius = UDim.new(0,5);
+    end;
+    do
+        local s = Instance.new("UIStroke", vBtn);
+        s.Color = RGB2(120,20,20); s.Thickness = 1;
+    end;
+
+    -- Active indicator dot
+    local vDot = Instance.new("Frame");
+    vDot.Size             = UDim2.new(0,6,0,6);
+    vDot.Position         = UDim2.new(1,-8,0,4);
+    vDot.BackgroundColor3 = RGB2(80,80,80);
+    vDot.BorderSizePixel  = 0;
+    vDot.ZIndex           = 301;
+    vDot.Parent           = vBtn;
+    do local c = Instance.new("UICorner",vDot); c.CornerRadius = UDim.new(1,0); end;
+
+    local function RefreshVBtn()
+        if VOID_CFG.Enabled then
+            vBtn.BackgroundColor3 = RGB2(120,20,20);
+            vBtn.TextColor3       = RGB2(255,120,120);
+            vDot.BackgroundColor3 = RGB2(0,255,100);
+            -- Pulse dot when active
+            TweenService:Create(vDot,
+                TweenInfo.new(0.6,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,0,true),
+                {BackgroundTransparency=0.5}):Play();
+        else
+            vBtn.BackgroundColor3 = RGB2(40,10,10);
+            vBtn.TextColor3       = RGB2(255,80,80);
+            vDot.BackgroundColor3 = RGB2(80,80,80);
+            vDot.BackgroundTransparency = 0;
+        end;
+    end;
+
+    vBtn.MouseButton1Click:Connect(function()
+        VS_Toggle();
+        RefreshVBtn();
+    end);
+
+    -- Drag
+    do
+        local dragging = false;
+        local dragStart = Vector2.zero;
+        local startX, startY = 0, 0;
+
+        vBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch then
+                dragging  = true;
+                dragStart = Vector2.new(inp.Position.X, inp.Position.Y);
+                startX    = vBtn.Position.X.Offset;
+                startY    = vBtn.Position.Y.Offset;
+            end;
+        end);
+        vBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType == Enum.UserInputType.Touch then
+                dragging = false;
+            end;
+        end);
+        UserInputService.InputChanged:Connect(function(inp)
+            if not dragging then return; end;
+            if inp.UserInputType ~= Enum.UserInputType.Touch then return; end;
+            local dx = inp.Position.X - dragStart.X;
+            local dy = inp.Position.Y - dragStart.Y;
+            vBtn.Position = UDim2.new(0, startX+dx, 1, startY+dy);
+        end);
+    end;
+
+else
+    -- ── PC: hint label at bottom-center + G key toggle ───────────
+    local vsGui = Instance.new("ScreenGui");
+    vsGui.Name           = "UEVoidHint";
+    vsGui.ResetOnSpawn   = false;
+    vsGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+    vsGui.IgnoreGuiInset = true;
+    vsGui.DisplayOrder   = 998;
+    vsGui.Parent         = VS_GUI_PARENT;
+
+    local hint = Instance.new("TextLabel");
+    hint.Size             = UDim2.new(0,220,0,24);
+    hint.Position         = UDim2.new(0.5,-110,1,-36);
+    hint.BackgroundColor3 = RGB2(8,8,13);
+    hint.BackgroundTransparency = 0.3;
+    hint.BorderSizePixel  = 0;
+    hint.Text             = "G  —  Void: OFF";
+    hint.TextColor3       = RGB2(160,160,180);
+    hint.TextSize         = 11;
+    hint.Font             = Enum.Font.GothamBold;
+    hint.ZIndex           = 300;
+    hint.Parent           = vsGui;
+    do
+        local c = Instance.new("UICorner", hint);
+        c.CornerRadius = UDim.new(0,4);
+    end;
+
+    local function RefreshHint()
+        if VOID_CFG.Enabled then
+            hint.Text      = "G  —  Void: ON";
+            hint.TextColor3 = RGB2(80,200,120);
+        else
+            hint.Text      = "G  —  Void: OFF";
+            hint.TextColor3 = RGB2(160,160,180);
+        end;
+    end;
+
+    -- G key toggle
+    UserInputService.InputBegan:Connect(function(inp, gpe)
+        if gpe then return; end;
+        if inp.KeyCode == Enum.KeyCode.G then
+            VS_Toggle();
+            RefreshHint();
+        end;
+    end);
+end;
+
+-- ─────────────────────────────────────────────────────────────────
+--  [11] FPS UNCAP
 -- ─────────────────────────────────────────────────────────────────
 if CFG.FPSUncap and setfpscap then pcall(setfpscap, 0); end;
 
 -- ─────────────────────────────────────────────────────────────────
---  [11] ANTI-AFK
+--  [12] ANTI-AFK
 -- ─────────────────────────────────────────────────────────────────
 if CFG.AntiAFK then
     local VU = game:GetService("VirtualUser");
@@ -931,12 +1213,14 @@ if getgenv then
         GetResolved = function(player)
             local rd = DB[player];
             if not rd then return nil; end;
-            -- Priority: void target > anti-bait > standard
             return VoidTargets[player]
                 or (rd.abResolvedPos and CFrame.new(rd.abResolvedPos))
                 or (rd.resolvedPos   and CFrame.new(rd.resolvedPos))
                 or nil;
         end,
+        -- Void spam controls
+        VoidToggle  = VS_Toggle,
+        VoidCFG     = VOID_CFG,
     };
 end;
 
@@ -1163,6 +1447,18 @@ Section("PROTECTION",  30);
 Row("Self Anti-Void",     "SelfAntiVoid",     31);
 Row("Anti-AFK",           "AntiAFK",          32);
 Row("FPS Uncap",          "FPSUncap",         33);
+-- Void spam note (device-specific UI lives outside panel)
+do
+    local note = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,20), LayoutOrder=34, ZIndex=200});
+    MakeLabel(note, {
+        Size=UDim2.new(1,0,1,0),
+        Text = IsMobile and "Void: tap button near toggle"
+                        or "Void: press G key",
+        TextColor3=RGB(60,90,60), TextSize=9,
+        Font=Enum.Font.Gotham,
+        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201,
+    });
+end;
 
 -- Auto-resize
 local function ResizePanel()
