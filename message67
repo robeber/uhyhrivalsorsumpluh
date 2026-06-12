@@ -1,9 +1,9 @@
 --[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║          UE RIVALS — ULTIMATE RAGE LUA  v5                  ║
-    ║  Reload · Horizon Resolver · Adaptive Void · Full GUI        ║
-    ║                     by Xorfee                               ║
-    ╚══════════════════════════════════════════════════════════════╝
+    +==============================================================+
+    |          UE RIVALS -- ULTIMATE RAGE LUA  v5                  |
+    |  Reload * Horizon Resolver * Adaptive Void * Full GUI        |
+    |                     by Xorfee                               |
+    +==============================================================+
 
     RESOLVER CREDIT: Horizon v2.1 (resolver architecture + methods)
     Fused with our per-yaw adaptive scoring, bruteforce fallback,
@@ -12,29 +12,29 @@
     LOAD ORDER: Run BEFORE or alongside UE's main loader.
 
     FEATURES
-    ────────────────────────────────────────────────────────────────
-    [1]  Reload exploit    – zeroes bow/slingshot, 0.09 daggers
-    [2]  Reload loop       – re-patches every 8s
-    [3]  No-spread         – zeroes spread/bloom/recoil
-    [4]  Full-auto patch   – semi → auto
-    [5]  Standard Resolver – Velocity / History / BodyPart / Hybrid
+    ----------------------------------------------------------------
+    [1]  Reload exploit    - zeroes bow/slingshot, 0.09 daggers
+    [2]  Reload loop       - re-patches every 8s
+    [3]  No-spread         - zeroes spread/bloom/recoil
+    [4]  Full-auto patch   - semi ? auto
+    [5]  Standard Resolver - Velocity / History / BodyPart / Hybrid
                              Auto-learns per player, 3 phases:
-                             Collecting → Testing → Optimized
+                             Collecting ? Testing ? Optimized
                              Desync intensity tracking built in
-    [6]  Anti-Bait Resolver– 6 methods: PreVoid / VelExtrap /
+    [6]  Anti-Bait Resolver- 6 methods: PreVoid / VelExtrap /
                              AltBody / NetPos / RevPred / Hybrid
                              Advanced weighted multi-resolve when
                              enemy is confirmed advanced config
-    [7]  Yaw Scoring       – per-player yaw offset scoring table
-                             +1.2 on hit, -0.4 on miss, 0.85× decay
+    [7]  Yaw Scoring       - per-player yaw offset scoring table
+                             +1.2 on hit, -0.4 on miss, 0.85x decay
                              Bruteforce sweep after 6 consecutive misses
-    [8]  Adaptive Void Res – detects void abusers, picks best of
+    [8]  Adaptive Void Res - detects void abusers, picks best of
                              Extrapolate/Average/Last per player
                              based on which historically lands hits
-    [9]  Self anti-void    – teleports local back if voided
+    [9]  Self anti-void    - teleports local back if voided
     [10] FPS uncap
     [11] Anti-AFK
-    [12] GUI               – draggable, lower-left toggle, mobile-safe
+    [12] GUI               - draggable, lower-left toggle, mobile-safe
 
     GLOBALS: getgenv().UERage
         .CFG               live config table
@@ -43,12 +43,12 @@
         .OnMiss(player)     call when shot misses
         .GetYaw(player)     current best yaw offset (degrees)
         .DB                 full resolver database
-    ────────────────────────────────────────────────────────────────
+    ----------------------------------------------------------------
 ]]
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  SERVICES
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local RunService        = game:GetService("RunService");
 local Players           = game:GetService("Players");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
@@ -61,9 +61,9 @@ local function GetChar()  return LocalPlayer.Character; end
 local function GetRoot()  local c = GetChar(); return c and c:FindFirstChild("HumanoidRootPart"); end
 local function GetHuman() local c = GetChar(); return c and c:FindFirstChildOfClass("Humanoid"); end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  CONFIG
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local CFG = {
     -- Exploits
     ReloadExploit    = true,
@@ -99,14 +99,14 @@ local CFG = {
     AntiAFK          = true,
 };
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [1]+[2]  RELOAD EXPLOIT
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local ReloadOverrides = { bow = 0, slingshot = 0, daggers = 0.09 };
 
 local function ApplyReload(Items)
     if not CFG.ReloadExploit then return; end;
-    for _, Item in Items do
+    for _, Item in pairs(Items) do
         local name = Item.Name:lower();
         local val  = ReloadOverrides[name];
         if val ~= nil and rawget(Item, "ReloadLength") then
@@ -130,9 +130,9 @@ task.spawn(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [3]  NO-SPREAD
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 task.spawn(function()
     if not CFG.NoSpread then return; end;
     local mods = ReplicatedStorage:FindFirstChild("Modules");
@@ -155,9 +155,9 @@ task.spawn(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [4]  FULL-AUTO PATCH
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 task.spawn(function()
     if not CFG.FullAuto then return; end;
     local mods = ReplicatedStorage:WaitForChild("Modules", 10);
@@ -166,18 +166,18 @@ task.spawn(function()
     if not ok or not IL then return; end;
     local Items = rawget(IL, "Items");
     if not Items then return; end;
-    for _, Item in Items do
+    for _, Item in pairs(Items) do
         if rawget(Item, "FireMode") and tostring(rawget(Item, "FireMode")):lower() == "semi" then
             rawset(Item, "FireMode", "auto");
         end;
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  RESOLVER DATABASE
 --  Per-player state holding both the Horizon-style method learning
 --  AND our per-yaw scoring system.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
 -- Learning phases (from Horizon)
 local Phase = { Collecting = "collecting", Testing = "testing", Optimized = "optimized" };
@@ -198,19 +198,19 @@ local VOID_MODES = { "Extrapolate", "Average", "Last" };
 
 local function NewYawScores()
     local t = {};
-    for _, y in YAW_CANDIDATES do t[y] = 1.0; end;
+    for _, y in pairs(YAW_CANDIDATES) do t[y] = 1.0; end;
     return t;
 end
 
 local function NewVoidScores()
     local t = {};
-    for _, m in VOID_MODES do t[m] = 1.0; end;
+    for _, m in pairs(VOID_MODES) do t[m] = 1.0; end;
     return t;
 end
 
 local function NewMethodAccuracy(list)
     local t = {};
-    for _, m in list do t[m] = 0; end;
+    for _, m in pairs(list) do t[m] = 0; end;
     return t;
 end
 
@@ -291,9 +291,9 @@ end;
 Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then GetDB(p); end; end);
 Players.PlayerRemoving:Connect(function(p) DB[p] = nil; end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  UTILITY
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function IsAlive(p)
     local c = p.Character;
     if not c then return false; end;
@@ -315,9 +315,9 @@ local function GetVel(p)
     return r and r.AssemblyLinearVelocity or Vector3.zero;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  POSITION HISTORY TRACKING  (Heartbeat)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 RunService.Heartbeat:Connect(function()
     for player, rd in pairs(DB) do
         if not IsAlive(player) then continue; end;
@@ -339,7 +339,7 @@ RunService.Heartbeat:Connect(function()
 
         -- Average velocity
         local vsum = Vector3.zero;
-        for _, v in rd.velocityHistory do vsum += v; end;
+        for _, v in pairs(rd.velocityHistory) do vsum += v; end;
         rd.avgVelocity = vsum / math.max(1, #rd.velocityHistory);
 
         -- Desync intensity: large frame-to-frame delta = desyncing
@@ -375,9 +375,9 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [5]  STANDARD RESOLVER METHODS  (from Horizon)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function R_Velocity(c, rd)
     local root = c:FindFirstChild("HumanoidRootPart");
     if not root then return nil; end;
@@ -422,9 +422,9 @@ local function GetStandardResolved(player, rd)
     return nil;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  STANDARD RESOLVER LEARNING  (from Horizon, adapted)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function UpdateStandardLearning(rd)
     if not CFG.AutoLearn then return; end;
     local now = tick();
@@ -482,9 +482,9 @@ local function UpdateStandardAccuracy(rd)
     rd.rMethodAcc[m] = (rd.rMethodAcc[m] * 0.8) + (base * 0.2);
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [6]  ANTI-BAIT RESOLVER METHODS  (from Horizon)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function AB_PreVoid(c, rd)
     if rd.posBeforeVoid then return rd.posBeforeVoid; end;
     local root = c:FindFirstChild("HumanoidRootPart");
@@ -592,9 +592,9 @@ local function GetAntiBaitResolved(player, rd)
     return nil;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  ANTI-BAIT LEARNING  (from Horizon, adapted)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function DetectAdvancedConfig(rd)
     local q = 0;
     if rd.baitActivations > 5 then q += 20; end;
@@ -666,9 +666,9 @@ local function UpdateABAccuracy(rd)
     rd.abMethodAcc[m] = (rd.abMethodAcc[m] * (1 - blend)) + (base * blend);
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [7]  YAW SCORING SYSTEM  (ours)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function DecayYaw(rd)
     for y in pairs(rd.yawScores) do
         rd.yawScores[y] *= CFG.DecayRate;
@@ -706,9 +706,9 @@ local function GetYaw(player)
     return rd.lastYaw;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  HIT / MISS CALLBACKS  (wire these into UE or your shoot hook)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function OnHit(player)
     local rd = DB[player];
     if not rd then return; end;
@@ -771,9 +771,9 @@ local function OnMiss(player)
     end;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  MAIN RESOLVER LOOP  (Heartbeat)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 RunService.Heartbeat:Connect(function()
     for player, rd in pairs(DB) do
         if not IsAlive(player) then continue; end;
@@ -796,11 +796,11 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [8]  ADAPTIVE VOID POSITION RESOLVER  (ours)
---  Runs separately — picks the best position prediction mode
+--  Runs separately -- picks the best position prediction mode
 --  per player based on which historically scores hits.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local VoidTargets = {};
 
 local function VoidExtrapolate(rd)
@@ -877,9 +877,9 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [9]  SELF ANTI-VOID
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local lastSafe = nil;
 LocalPlayer.CharacterAdded:Connect(function() lastSafe = nil; end);
 
@@ -900,26 +900,26 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [10] VOID SPAM  (desync + random teleport fusion)
 --
 --  HOW IT WORKS:
---    Heartbeat  → teleports HRP server-side to a random huge coord
+--    Heartbeat  ? teleports HRP server-side to a random huge coord
 --                 AND randomises velocity/angular velocity
---    RenderStep → snaps everything back client-side at First priority
+--    RenderStep ? snaps everything back client-side at First priority
 --                 so locally you never move
 --
 --  This means the SERVER sees you at a random position every frame
 --  while the CLIENT (you) sees yourself standing still. Classic
---  desync void — unhittable, looks normal on your end.
+--  desync void -- unhittable, looks normal on your end.
 --
 --  DEVICE DETECTION:
---    Mobile  → draggable void button (lower-left area)
---    PC      → "Press G to toggle Void" hint at bottom-center
+--    Mobile  ? draggable void button (lower-left area)
+--    PC      ? "Press G to toggle Void" hint at bottom-center
 --              G key toggles it
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
--- ── Config ───────────────────────────────────────────────────────
+-- -- Config -------------------------------------------------------
 local VOID_CFG = {
     Enabled      = false,
     -- How far to scatter server position (stay within int32 safe range)
@@ -929,7 +929,7 @@ local VOID_CFG = {
     DeadZoneMin  = 500000000,
 };
 
--- ── betterRandom: avoids dead zone around 0 ──────────────────────
+-- -- betterRandom: avoids dead zone around 0 ----------------------
 local function BetterRandom(mi, ma, dmi, dma)
     local val = math.random(mi, ma);
     local tries = 0;
@@ -950,7 +950,7 @@ local function RandomScatter()
     return Axis(), Axis(), Axis();
 end;
 
--- ── State ─────────────────────────────────────────────────────────
+-- -- State ---------------------------------------------------------
 local VS_hrp      = nil;
 local VS_clientCF = nil;
 local VS_clientLV = nil;
@@ -1030,11 +1030,11 @@ LocalPlayer.CharacterAdded:Connect(function()
     VS_clientAV = nil;
 end);
 
--- ── Device detection ─────────────────────────────────────────────
+-- -- Device detection ---------------------------------------------
 local IsMobile = UserInputService.TouchEnabled
               and not UserInputService.KeyboardEnabled;
 
--- ── Void UI ──────────────────────────────────────────────────────
+-- -- Void UI ------------------------------------------------------
 local VS_GUI_PARENT;
 pcall(function() if gethui then VS_GUI_PARENT = gethui(); end; end);
 if not VS_GUI_PARENT or typeof(VS_GUI_PARENT) ~= "Instance" then
@@ -1044,7 +1044,7 @@ end;
 local function RGB2(r,g,b) return Color3.fromRGB(r,g,b); end;
 
 if IsMobile then
-    -- ── MOBILE: draggable void button ────────────────────────────
+    -- -- MOBILE: draggable void button ----------------------------
     local vsGui = Instance.new("ScreenGui");
     vsGui.Name           = "UEVoidBtn";
     vsGui.ResetOnSpawn   = false;
@@ -1110,7 +1110,7 @@ if IsMobile then
     -- Drag
     do
         local dragging = false;
-        local dragStart = Vector2.zero;
+        local dragStart = Vector2.new(0,0);
         local startX, startY = 0, 0;
 
         vBtn.InputBegan:Connect(function(inp)
@@ -1136,7 +1136,7 @@ if IsMobile then
     end;
 
 else
-    -- ── PC: hint label at bottom-center + G key toggle ───────────
+    -- -- PC: hint label at bottom-center + G key toggle -----------
     local vsGui = Instance.new("ScreenGui");
     vsGui.Name           = "UEVoidHint";
     vsGui.ResetOnSpawn   = false;
@@ -1151,7 +1151,7 @@ else
     hint.BackgroundColor3 = RGB2(8,8,13);
     hint.BackgroundTransparency = 0.3;
     hint.BorderSizePixel  = 0;
-    hint.Text             = "G  —  Void: OFF";
+    hint.Text             = "G  --  Void: OFF";
     hint.TextColor3       = RGB2(160,160,180);
     hint.TextSize         = 11;
     hint.Font             = Enum.Font.GothamBold;
@@ -1164,10 +1164,10 @@ else
 
     local function RefreshHint()
         if VOID_CFG.Enabled then
-            hint.Text      = "G  —  Void: ON";
+            hint.Text      = "G  --  Void: ON";
             hint.TextColor3 = RGB2(80,200,120);
         else
-            hint.Text      = "G  —  Void: OFF";
+            hint.Text      = "G  --  Void: OFF";
             hint.TextColor3 = RGB2(160,160,180);
         end;
     end;
@@ -1182,14 +1182,14 @@ else
     end);
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [11] FPS UNCAP
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if CFG.FPSUncap and setfpscap then pcall(setfpscap, 0); end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [12] ANTI-AFK
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if CFG.AntiAFK then
     local VU = game:GetService("VirtualUser");
     LocalPlayer.Idled:Connect(function()
@@ -1198,9 +1198,9 @@ if CFG.AntiAFK then
     end);
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  GLOBAL EXPOSE
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if getgenv then
     getgenv().UERage = {
         CFG         = CFG,
@@ -1224,9 +1224,9 @@ if getgenv then
     };
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [12] GUI
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end
 
 local GUI_PARENT;
@@ -1428,7 +1428,7 @@ local function DropRow(label, cfgKey, options, order)
     end);
 end
 
--- ── Row / section helpers for inline build ──────────────────────
+-- -- Row / section helpers for inline build ----------------------
 local function SectionInline(text, order)
     local s = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=order, ZIndex=200});
     MakeLabel(s, {Size=UDim2.new(1,0,1,0), Text=text, TextColor3=RGB(40,70,100),
@@ -1531,7 +1531,7 @@ ToggleBtn.MouseButton1Click:Connect(TogglePanel);
 -- Drag
 do
     local dragging = false;
-    local dragStart = Vector2.zero;
+    local dragStart = Vector2.new(0,0);
     local startPX, startPY = 0, 0;
 
     TitleBar.InputBegan:Connect(function(inp)
@@ -1562,7 +1562,7 @@ do
     end);
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  SLINGSHOT OPTIMIZATIONS
 --
 --  Slingshot-specific tuning applied on top of the base resolver:
@@ -1583,7 +1583,7 @@ end;
 --  4. Spread is already zeroed by NoSpread, but we also hook
 --     the projectile module specifically for slingshot to ensure
 --     the actual projectile launch direction is never randomized.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
 local SLING_SPEED   = 180;  -- studs/sec (slingshot projectile)
 local SLING_GRAVITY = 196.2; -- Roblox gravity (workspace.Gravity default)
@@ -1648,7 +1648,7 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ── Slingshot base patch + OP mode ──────────────────────────────
+-- -- Slingshot base patch + OP mode ------------------------------
 local SlingshotOP = false; -- toggled from GUI (off by default)
 
 task.spawn(function()
@@ -1660,7 +1660,7 @@ task.spawn(function()
     if not Items then return; end;
 
     local function PatchSlingshot()
-        for _, Item in Items do
+        for _, Item in pairs(Items) do
             if not Item.Name:lower():find("slingshot") then continue; end;
             for _, field in {
                 "ReloadLength","FireRate","Spread","Bloom",
@@ -1673,10 +1673,10 @@ task.spawn(function()
                 rawset(Item, "ProjectileSpeed", SlingshotOP and 99999 or 9999);
             end;
             if SlingshotOP then
-                for _, field in {"Damage","HeadshotMultiplier","MinDamage"} do
+                for _, field in pairs({"Damage","HeadshotMultiplier","MinDamage"}) do
                     if rawget(Item, field) ~= nil then rawset(Item, field, 9999); end;
                 end;
-                for _, field in {"MaxDistance","Range"} do
+                for _, field in pairs({"MaxDistance","Range"}) do
                     if rawget(Item, field) ~= nil then rawset(Item, field, 99999); end;
                 end;
                 if rawget(Item, "PierceCount")  then rawset(Item, "PierceCount",  999); end;
@@ -1691,14 +1691,14 @@ task.spawn(function()
     while task.wait(3) do PatchSlingshot(); end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  LOW DETAIL MODE
 --
 --  Strips as much visual noise as possible to squeeze FPS on
 --  mobile / low-end devices. Off by default.
 --  Affects: textures, meshes, particles, decals, post-processing,
 --           shadows, terrain quality, water rendering, sounds.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
 local LowDetailActive = false;
 local LowDetailBackup = {}; -- store originals for restore
@@ -1823,15 +1823,15 @@ local function RemoveLowDetail()
 
     -- Note: particles/decals/sounds can't easily be restored without
     -- full table backup; rejoin or disable/enable recommended.
-    print("[UE] Low Detail OFF — rejoin recommended to restore particles/decals");
+    print("[UE] Low Detail OFF -- rejoin recommended to restore particles/decals");
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  TRACKER HUD
 --  Bottom-right black box, rounded corners.
 --  Shows: Kills / Deaths / KD / Hit Rate / Resolver Phase /
 --         Void Status / FPS / Slingshot Mode
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
 local TRACKER = {
     Kills     = 0,
@@ -1851,7 +1851,7 @@ local function HookCharacter(char)
         TRACKER.Deaths += 1;
     end);
 
-    -- Track enemies dying (kills) — detect when an enemy humanoid dies
+    -- Track enemies dying (kills) -- detect when an enemy humanoid dies
     -- while we're alive (rough approximation)
 end;
 
@@ -1934,7 +1934,7 @@ end;
 -- Drag support for tracker
 do
     local trDrag = false;
-    local trDS = Vector2.zero;
+    local trDS = Vector2.new(0,0);
     local trSX, trSY = 0, 0;
     trHeader.Active = true;
     trHeader.InputBegan:Connect(function(inp)
@@ -2140,11 +2140,11 @@ if getgenv and getgenv().UERage then
     getgenv().UERage.OnMiss = OnMiss;
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  EXPERIMENTAL: PACKET BURST FIRE
 --  Fires Activate() N extra times in the same frame on each shot.
 --  Can multi-hit during high-lag frames. OFF by default.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local PacketBurst      = false;
 local PacketBurstCount = 3;
 local PacketBurstBusy  = false;
@@ -2202,12 +2202,12 @@ if getgenv then
     getgenv().UERage     = ue;
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  DONE
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 print("[UE Rage v6] Loaded");
 print("  Resolver:        ON  |  Anti-Bait: ON  |  Void: " .. CFG.VoidResolveMode);
 print("  Slingshot OP:    OFF (toggle in panel)");
-print("  Low Detail:      OFF (toggle in panel) — nuclear mode");
+print("  Low Detail:      OFF (toggle in panel) -- nuclear mode");
 print("  Packet Burst:    OFF [EXPERIMENTAL]");
 print("  Tracker HUD:     draggable, bottom-right");
