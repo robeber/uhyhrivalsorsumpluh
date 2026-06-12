@@ -1,8 +1,8 @@
 --[[
     ╔══════════════════════════════════════════════════════════════╗
-    ║          UE RIVALS — ULTIMATE RAGE LUA  v6.7                  ║
+    ║          UE RIVALS — ULTIMATE RAGE LUA  v5                   ║
     ║  Reload · Horizon Resolver · Adaptive Void · Full GUI        ║
-    ║                     by Xorfee                               ║
+    ║                     by Bred                                  ║
     ╚══════════════════════════════════════════════════════════════╝
 
     RESOLVER CREDIT: Horizon v2.1 (resolver architecture + methods)
@@ -1600,9 +1600,7 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ── Slingshot base patch + OP mode ──────────────────────────────
-local SlingshotOP = false; -- toggled from GUI (off by default)
-
+-- Slingshot-specific item patch (aggressive, re-applies every 5s)
 task.spawn(function()
     local mods = ReplicatedStorage:WaitForChild("Modules", 10);
     if not mods then return; end;
@@ -1613,34 +1611,27 @@ task.spawn(function()
 
     local function PatchSlingshot()
         for _, Item in Items do
-            if not Item.Name:lower():find("slingshot") then continue; end;
-            for _, field in {
-                "ReloadLength","FireRate","Spread","Bloom",
-                "Recoil","RecoveryTime","ChargeTime","WindupTime",
-                "AimDownSightsTime","AimOutTime","EquipTime",
-            } do
-                if rawget(Item, field) ~= nil then rawset(Item, field, 0); end;
-            end;
-            if rawget(Item, "ProjectileSpeed") then
-                rawset(Item, "ProjectileSpeed", SlingshotOP and 99999 or 9999);
-            end;
-            if SlingshotOP then
-                for _, field in {"Damage","HeadshotMultiplier","MinDamage"} do
-                    if rawget(Item, field) ~= nil then rawset(Item, field, 9999); end;
+            if Item.Name:lower():find("slingshot") then
+                -- Zero every timing-related field
+                for _, field in {
+                    "ReloadLength", "FireRate", "Spread",
+                    "Bloom", "Recoil", "RecoveryTime",
+                    "ChargeTime", "WindupTime",
+                } do
+                    if rawget(Item, field) ~= nil then
+                        rawset(Item, field, 0);
+                    end;
                 end;
-                for _, field in {"MaxDistance","Range"} do
-                    if rawget(Item, field) ~= nil then rawset(Item, field, 99999); end;
+                -- Max projectile speed
+                if rawget(Item, "ProjectileSpeed") then
+                    rawset(Item, "ProjectileSpeed", 9999);
                 end;
-                if rawget(Item, "PierceCount")  then rawset(Item, "PierceCount",  999); end;
-                if rawget(Item, "FalloffStart") then rawset(Item, "FalloffStart", 0);   end;
-                if rawget(Item, "FalloffEnd")   then rawset(Item, "FalloffEnd",   0);   end;
-                if rawget(Item, "FireMode")     then rawset(Item, "FireMode", "auto");  end;
             end;
         end;
     end;
 
     PatchSlingshot();
-    while task.wait(3) do PatchSlingshot(); end;
+    while task.wait(5) do PatchSlingshot(); end;
 end);
 
 -- ─────────────────────────────────────────────────────────────────
@@ -1659,29 +1650,33 @@ local function ApplyLowDetail()
     if LowDetailActive then return; end;
     LowDetailActive = true;
 
-    -- Lighting: remove Sky, Atmosphere, all PostEffects, zero shadows
+    -- Lighting
     pcall(function()
         local L = game:GetService("Lighting");
-        LowDetailBackup.GlobalShadows            = L.GlobalShadows;
-        LowDetailBackup.Brightness               = L.Brightness;
-        LowDetailBackup.FogEnd                   = L.FogEnd;
-        LowDetailBackup.FogStart                 = L.FogStart;
-        LowDetailBackup.EnvironmentDiffuseScale  = L.EnvironmentDiffuseScale;
+        LowDetailBackup.GlobalShadows        = L.GlobalShadows;
+        LowDetailBackup.Brightness           = L.Brightness;
+        LowDetailBackup.FogEnd               = L.FogEnd;
+        LowDetailBackup.EnvironmentDiffuseScale = L.EnvironmentDiffuseScale;
         LowDetailBackup.EnvironmentSpecularScale = L.EnvironmentSpecularScale;
-        LowDetailBackup.ClockTime                = L.ClockTime;
-        L.GlobalShadows            = false;
-        L.Brightness               = 3;
-        L.FogEnd                   = 999999;
-        L.FogStart                 = 999999;
-        L.EnvironmentDiffuseScale  = 0;
+        L.GlobalShadows           = false;
+        L.Brightness              = 2;
+        L.FogEnd                  = 100000;
+        L.EnvironmentDiffuseScale = 0;
         L.EnvironmentSpecularScale = 0;
-        L.ClockTime                = 14;
-        -- Physically remove Sky, Atmosphere, all post-effects
-        for _, child in L:GetChildren() do
-            if child:IsA("PostEffect") or child:IsA("Sky") or child:IsA("Atmosphere") then
-                LowDetailBackup["light_child_"..child.Name] = {inst=child, parent=child.Parent};
-                child.Parent = nil;
+
+        -- Kill all post-processing effects
+        for _, fx in L:GetChildren() do
+            if fx:IsA("PostEffect") then
+                LowDetailBackup["fx_" .. fx.Name .. "_enabled"] = fx.Enabled;
+                fx.Enabled = false;
             end;
+        end;
+
+        -- Kill atmosphere
+        local atmo = L:FindFirstChildOfClass("Atmosphere");
+        if atmo then
+            LowDetailBackup.AtmoDensity = atmo.Density;
+            atmo.Density = 0;
         end;
     end);
 
@@ -1689,51 +1684,49 @@ local function ApplyLowDetail()
     pcall(function()
         local T = workspace:FindFirstChildOfClass("Terrain");
         if not T then return; end;
-        LowDetailBackup.WaterWaveSize    = T.WaterWaveSize;
-        LowDetailBackup.WaterWaveSpeed   = T.WaterWaveSpeed;
+        LowDetailBackup.WaterWaveSize   = T.WaterWaveSize;
+        LowDetailBackup.WaterWaveSpeed  = T.WaterWaveSpeed;
         LowDetailBackup.WaterReflectance = T.WaterReflectance;
-        LowDetailBackup.WaterTransparency= T.WaterTransparency;
-        LowDetailBackup.Decoration       = T.Decoration;
-        T.WaterWaveSize     = 0;
-        T.WaterWaveSpeed    = 0;
-        T.WaterReflectance  = 0;
+        LowDetailBackup.WaterTransparency = T.WaterTransparency;
+        T.WaterWaveSize    = 0;
+        T.WaterWaveSpeed   = 0;
+        T.WaterReflectance = 0;
         T.WaterTransparency = 1;
-        T.Decoration        = false;
     end);
 
-    -- Render quality floor
+    -- Workspace render settings
     pcall(function()
+        LowDetailBackup.StreamingEnabled = workspace.StreamingEnabled;
+        -- Can't set StreamingEnabled at runtime, but we can reduce quality
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01;
     end);
 
-    -- Nuclear workspace strip:
-    -- Flat gray parts, no textures, no sounds, no effects, no surface guis
-    local function NukeObject(obj)
-        pcall(function()
-            local t = obj.ClassName;
-            if t == "ParticleEmitter" or t == "Trail" or t == "Smoke"
-            or t == "Fire" or t == "Sparkles" or t == "SelectionBox"
-            or t == "SelectionSphere" or t == "BillboardGui"
-            or t == "SurfaceGui" or t == "SurfaceAppearance" then
-                obj.Parent = nil;
-            elseif t == "Decal" or t == "Texture" then
-                obj.Transparency = 1;
-            elseif t == "SpecialMesh" or t == "FileMesh" then
-                obj.TextureId = "";
-            elseif t == "Sound" then
-                obj.Volume  = 0;
-                obj.Playing = false;
-            elseif obj:IsA("BasePart") then
-                obj.Material    = Enum.Material.SmoothPlastic;
-                obj.Reflectance = 0;
-                obj.CastShadow  = false;
-            end;
-        end);
+    -- Strip particles, decals, textures, sounds from workspace
+    local function StripDescendant(obj)
+        if obj:IsA("ParticleEmitter")
+        or obj:IsA("Trail")
+        or obj:IsA("Smoke")
+        or obj:IsA("Fire")
+        or obj:IsA("Sparkles") then
+            obj.Enabled = false;
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1;
+        elseif obj:IsA("SpecialMesh") then
+            -- Keep mesh for hitbox accuracy, just blank texture
+            obj.TextureId = "";
+        elseif obj:IsA("Sound") and not obj.Parent:IsA("Humanoid") then
+            -- Mute non-character sounds (keep footsteps for awareness)
+            obj.Volume = 0;
+        end;
     end;
 
-    for _, obj in workspace:GetDescendants() do NukeObject(obj); end;
+    for _, obj in workspace:GetDescendants() do
+        pcall(StripDescendant, obj);
+    end;
+
+    -- Also strip on new descendants
     workspace.DescendantAdded:Connect(function(obj)
-        if LowDetailActive then task.defer(NukeObject, obj); end;
+        if LowDetailActive then pcall(StripDescendant, obj); end;
     end);
 end;
 
@@ -1866,7 +1859,7 @@ trGui.Parent         = TR_PARENT;
 -- Outer box
 local trBox = Instance.new("Frame");
 trBox.Size             = UDim2.new(0, 160, 0, 10); -- height auto-grows
-trBox.Position         = UDim2.new(1, -170, 1, -220); -- bottom-right raised
+trBox.Position         = UDim2.new(1, -168, 1, -12); -- bottom-right
 trBox.BackgroundColor3 = Color3.fromRGB(6, 6, 10);
 trBox.BackgroundTransparency = 0;
 trBox.BorderSizePixel  = 0;
@@ -1881,35 +1874,6 @@ do
     local s = Instance.new("UIStroke", trBox);
     s.Color = Color3.fromRGB(18, 28, 42);
     s.Thickness = 1;
-end;
-
--- Drag support for tracker
-do
-    local trDrag = false;
-    local trDS = Vector2.zero;
-    local trSX, trSY = 0, 0;
-    trHeader.Active = true;
-    trHeader.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            trDrag = true;
-            trDS   = Vector2.new(inp.Position.X, inp.Position.Y);
-            trSX   = trBox.Position.X.Offset;
-            trSY   = trBox.Position.Y.Offset;
-        end;
-    end);
-    trHeader.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            trDrag = false;
-        end;
-    end);
-    UserInputService.InputChanged:Connect(function(inp)
-        if not trDrag then return; end;
-        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
-        and inp.UserInputType ~= Enum.UserInputType.Touch then return; end;
-        trBox.Position = UDim2.new(1, trSX+(inp.Position.X-trDS.X), 1, trSY+(inp.Position.Y-trDS.Y));
-    end);
 end;
 
 local trLayout = Instance.new("UIListLayout", trBox);
@@ -1975,8 +1939,6 @@ TRRow("shots",    "Shots       0");
 TRRow("resolver", "Resolver    collecting");
 TRRow("void",     "Void        OFF");
 TRRow("sling",    "Slingshot   OFF");
-TRRow("slingop",  "Sling OP    OFF");
-TRRow("burst",    "Pkt Burst   OFF");
 TRRow("ld",       "Low Detail  OFF");
 TRRow("fps",      "FPS         --");
 TRRow("uptime",   "Uptime      0s");
@@ -2092,132 +2054,99 @@ if getgenv and getgenv().UERage then
     getgenv().UERage.OnMiss = OnMiss;
 end;
 
--- ─────────────────────────────────────────────────────────────────
---  EXPERIMENTAL: PACKET BURST FIRE
---  Fires Activate() N extra times in the same frame on each shot.
---  Can multi-hit during high-lag frames. OFF by default.
--- ─────────────────────────────────────────────────────────────────
-local PacketBurst      = false;
-local PacketBurstCount = 3;
-local PacketBurstBusy  = false;
-
-local function RunPacketBurst()
-    if not PacketBurst or PacketBurstBusy then return; end;
-    local char = GetChar();
-    if not char then return; end;
-    local tool = char:FindFirstChildOfClass("Tool");
-    if not tool or not tool.Name:lower():find("slingshot") then return; end;
-    PacketBurstBusy = true;
-    task.spawn(function()
-        for _ = 1, PacketBurstCount do
-            pcall(function() tool:Activate(); end);
-        end;
-        PacketBurstBusy = false;
-    end);
+-- ── Low Detail toggle from GUI (add to existing GUI section) ─────
+-- (Exposed via global so it can be called from GUI toggle row)
+if getgenv and getgenv().UERage then
+    getgenv().UERage.LowDetailToggle = function()
+        if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end;
+        return LowDetailActive;
+    end;
+    getgenv().UERage.Tracker = TRACKER;
 end;
 
-local function HookBurst(char)
-    if not char then return; end;
-    char.ChildAdded:Connect(function(c)
-        if c:IsA("Tool") and c.Name:lower():find("slingshot") then
-            c.Activated:Connect(RunPacketBurst);
-        end;
-    end);
-    local t = char:FindFirstChildOfClass("Tool");
-    if t and t.Name:lower():find("slingshot") then t.Activated:Connect(RunPacketBurst); end;
-end;
-HookBurst(GetChar());
-LocalPlayer.CharacterAdded:Connect(HookBurst);
-
--- ─────────────────────────────────────────────────────────────────
---  GUI EXTRA ROWS
--- ─────────────────────────────────────────────────────────────────
+-- Add Low Detail row to panel GUI (inject after panel is built)
+-- We do this by finding the ScrollFrame and adding a row
 task.defer(function()
+    -- Find existing scroll frame in the UERageGui panel
     local sg = GUI_PARENT:FindFirstChild("UERageGui");
     if not sg then return; end;
-    local panel = sg:FindFirstChildOfClass("Frame");
+    local panel = sg:FindFirstChild("Frame"); -- Panel
     if not panel then return; end;
     local sf = panel:FindFirstChildOfClass("ScrollingFrame");
     if not sf then return; end;
+    local layout = sf:FindFirstChildOfClass("UIListLayout");
 
-    local function IS(text, order)
-        local s = Instance.new("Frame", sf);
-        s.Size=UDim2.new(1,0,0,18); s.BackgroundTransparency=1; s.LayoutOrder=order;
-        local l=Instance.new("TextLabel",s); l.Size=UDim2.new(1,0,1,0);
-        l.BackgroundTransparency=1; l.Text=text; l.TextColor3=Color3.fromRGB(40,70,100);
-        l.TextSize=9; l.Font=Enum.Font.GothamBold; l.TextXAlignment=Enum.TextXAlignment.Left;
-        l.BorderSizePixel=0;
+    -- Section
+    local sec = Instance.new("Frame");
+    sec.Size = UDim2.new(1,-16,0,18);
+    sec.BackgroundTransparency = 1;
+    sec.LayoutOrder = 50;
+    sec.Parent = sf;
+    local secLbl = Instance.new("TextLabel", sec);
+    secLbl.Size = UDim2.new(1,0,1,0);
+    secLbl.BackgroundTransparency = 1;
+    secLbl.Text = "GRAPHICS";
+    secLbl.TextColor3 = Color3.fromRGB(40,70,100);
+    secLbl.TextSize = 9;
+    secLbl.Font = Enum.Font.GothamBold;
+    secLbl.TextXAlignment = Enum.TextXAlignment.Left;
+    secLbl.BorderSizePixel = 0;
+
+    -- Toggle row
+    local row = Instance.new("Frame");
+    row.Size = UDim2.new(1,-16,0,28);
+    row.BackgroundTransparency = 1;
+    row.LayoutOrder = 51;
+    row.Parent = sf;
+
+    local lbl = Instance.new("TextLabel", row);
+    lbl.Size = UDim2.new(1,-40,1,0);
+    lbl.BackgroundTransparency = 1;
+    lbl.Text = "Low Detail";
+    lbl.TextColor3 = Color3.fromRGB(138,168,200);
+    lbl.TextSize = 10;
+    lbl.Font = Enum.Font.Gotham;
+    lbl.TextXAlignment = Enum.TextXAlignment.Left;
+    lbl.BorderSizePixel = 0;
+
+    local pill = Instance.new("TextButton", row);
+    pill.Size = UDim2.new(0,32,0,16);
+    pill.Position = UDim2.new(1,-32,0.5,-8);
+    pill.BackgroundColor3 = Color3.fromRGB(26,26,42);
+    pill.BorderSizePixel = 0;
+    pill.Text = "";
+    pill.AutoButtonColor = false;
+    do local c = Instance.new("UICorner",pill); c.CornerRadius = UDim.new(0,8); end;
+
+    local knob = Instance.new("Frame", pill);
+    knob.Size = UDim2.new(0,11,0,11);
+    knob.Position = UDim2.new(0,2,0.5,-5);
+    knob.BackgroundColor3 = Color3.fromRGB(74,74,106);
+    knob.BorderSizePixel = 0;
+    do local c = Instance.new("UICorner",knob); c.CornerRadius = UDim.new(0,6); end;
+
+    local function RefLD()
+        pill.BackgroundColor3 = LowDetailActive and Color3.fromRGB(26,90,255) or Color3.fromRGB(26,26,42);
+        TweenService:Create(knob, TweenInfo.new(0.13), {
+            Position = LowDetailActive and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
+            BackgroundColor3 = LowDetailActive and Color3.fromRGB(160,200,255) or Color3.fromRGB(74,74,106),
+        }):Play();
     end;
-    local function IT(label, getter, setter, order)
-        local row=Instance.new("Frame",sf); row.Size=UDim2.new(1,0,0,28);
-        row.BackgroundTransparency=1; row.LayoutOrder=order;
-        local lbl=Instance.new("TextLabel",row); lbl.Size=UDim2.new(1,-40,1,0);
-        lbl.BackgroundTransparency=1; lbl.Text=label; lbl.TextColor3=Color3.fromRGB(138,168,200);
-        lbl.TextSize=10; lbl.Font=Enum.Font.Gotham; lbl.TextXAlignment=Enum.TextXAlignment.Left;
-        lbl.BorderSizePixel=0;
-        local pill=Instance.new("TextButton",row); pill.Size=UDim2.new(0,32,0,16);
-        pill.Position=UDim2.new(1,-32,0.5,-8); pill.BackgroundColor3=Color3.fromRGB(26,26,42);
-        pill.BorderSizePixel=0; pill.Text=""; pill.AutoButtonColor=false;
-        do local c=Instance.new("UICorner",pill); c.CornerRadius=UDim.new(0,8); end;
-        local knob=Instance.new("Frame",pill); knob.Size=UDim2.new(0,11,0,11);
-        knob.Position=UDim2.new(0,2,0.5,-5); knob.BackgroundColor3=Color3.fromRGB(74,74,106);
-        knob.BorderSizePixel=0;
-        do local c=Instance.new("UICorner",knob); c.CornerRadius=UDim.new(0,6); end;
-        local function Ref()
-            local on=getter();
-            pill.BackgroundColor3=on and Color3.fromRGB(26,90,255) or Color3.fromRGB(26,26,42);
-            TweenService:Create(knob,TweenInfo.new(0.13),{
-                Position=on and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
-                BackgroundColor3=on and Color3.fromRGB(160,200,255) or Color3.fromRGB(74,74,106),
-            }):Play();
-        end; Ref();
-        pill.MouseButton1Click:Connect(function() setter(); Ref(); end);
-    end;
+    RefLD();
 
-    IS("GRAPHICS",    50);
-    IT("Low Detail",  function() return LowDetailActive; end,
-        function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; end, 51);
-
-    IS("SLINGSHOT",   60);
-    IT("OP Mode",     function() return SlingshotOP; end,
-        function() SlingshotOP = not SlingshotOP; end, 61);
-
-    IS("EXPERIMENTAL",70);
-    IT("Packet Burst",function() return PacketBurst; end,
-        function() PacketBurst = not PacketBurst; end, 71);
+    pill.MouseButton1Click:Connect(function()
+        if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end;
+        RefLD();
+    end);
 end);
-
--- Update tracker rows for new features
-task.spawn(function()
-    while trGui.Parent do
-        task.wait(0.5);
-        if trRows["slingop"] then
-            trRows["slingop"].Text=FormatRow("Sling OP", SlingshotOP and "ON" or "off");
-            trRows["slingop"].TextColor3=SlingshotOP and Color3.fromRGB(255,160,60) or Color3.fromRGB(100,100,120);
-        end;
-        if trRows["burst"] then
-            trRows["burst"].Text=FormatRow("Pkt Burst", PacketBurst and "ON" or "off");
-            trRows["burst"].TextColor3=PacketBurst and Color3.fromRGB(220,80,220) or Color3.fromRGB(100,100,120);
-        end;
-    end;
-end);
-
--- Expose all
-if getgenv then
-    local ue = getgenv().UERage or {};
-    ue.LowDetailToggle   = function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; return LowDetailActive; end;
-    ue.SlingshotOPToggle = function() SlingshotOP = not SlingshotOP; return SlingshotOP; end;
-    ue.PacketBurstToggle = function() PacketBurst = not PacketBurst; return PacketBurst; end;
-    ue.Tracker           = TRACKER;
-    getgenv().UERage     = ue;
-end;
 
 -- ─────────────────────────────────────────────────────────────────
 --  DONE
 -- ─────────────────────────────────────────────────────────────────
 print("[UE Rage v6] Loaded");
-print("  Resolver:        ON  |  Anti-Bait: ON  |  Void: " .. CFG.VoidResolveMode);
-print("  Slingshot OP:    OFF (toggle in panel)");
-print("  Low Detail:      OFF (toggle in panel) — nuclear mode");
-print("  Packet Burst:    OFF [EXPERIMENTAL]");
-print("  Tracker HUD:     draggable, bottom-right");
+print("  Standard Resolver:  " .. (CFG.Resolver and "ON" or "OFF"));
+print("  Anti-Bait Resolver: " .. (CFG.AntiBait and "ON" or "OFF"));
+print("  Void Resolver:      " .. CFG.VoidResolveMode);
+print("  Slingshot Opt:      ON (pred tuned to distance + 200ms ping)");
+print("  Low Detail:         OFF (toggle in panel)");
+print("  Tracker HUD:        bottom-right");
