@@ -1,8 +1,8 @@
 --[[
     +==============================================================+
-    |          UE RIVALS -- ULTIMATE RAGE LUA  v5                  |
+    |          UE RIVALS -- ULTIMATE RAGE LUA  v7.6                |
     |  Reload * Horizon Resolver * Adaptive Void * Full GUI        |
-    |                     by Xorfee                               |
+    |                     by Bred                                  |
     +==============================================================+
 
     RESOLVER CREDIT: Horizon v2.1 (resolver architecture + methods)
@@ -1224,430 +1224,6 @@ if getgenv then
     };
 end;
 
--- -----------------------------------------------------------------
---  [12] GUI
--- -----------------------------------------------------------------
-local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end
-
-local GUI_PARENT;
-pcall(function() if gethui then GUI_PARENT = gethui(); end; end);
-if not GUI_PARENT or typeof(GUI_PARENT) ~= "Instance" then
-    GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
-end;
-
-local _old = GUI_PARENT:FindFirstChild("UERageGui");
-if _old then _old:Destroy(); end;
-
-local ScreenGui = Instance.new("ScreenGui");
-ScreenGui.Name           = "UERageGui";
-ScreenGui.ResetOnSpawn   = false;
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-ScreenGui.IgnoreGuiInset = true;
-ScreenGui.DisplayOrder   = 999;
-ScreenGui.Parent         = GUI_PARENT;
-
-local function MakeCorner(p, r)
-    local c = Instance.new("UICorner", p);
-    c.CornerRadius = UDim.new(0, r or 6);
-end
-local function MakeStroke(p, col, t)
-    local s = Instance.new("UIStroke", p);
-    s.Color = col; s.Thickness = t or 1;
-end
-local function MakeFrame(parent, props)
-    local f = Instance.new("Frame");
-    f.BackgroundTransparency = 1;
-    f.BorderSizePixel = 0;
-    f.Parent = parent;
-    for k,v in pairs(props or {}) do f[k] = v; end;
-    return f;
-end
-local function MakeLabel(parent, props)
-    local l = Instance.new("TextLabel");
-    l.BackgroundTransparency = 1;
-    l.BorderSizePixel = 0;
-    l.Parent = parent;
-    for k,v in pairs(props or {}) do l[k] = v; end;
-    return l;
-end
-local function MakeBtn(parent, props)
-    local b = Instance.new("TextButton");
-    b.BackgroundTransparency = 1;
-    b.BorderSizePixel = 0;
-    b.AutoButtonColor = false;
-    b.Text = "";
-    b.Parent = parent;
-    for k,v in pairs(props or {}) do b[k] = v; end;
-    return b;
-end
-
--- Toggle button (lower-left)
-local ToggleBtn = MakeBtn(ScreenGui, {
-    Size             = UDim2.new(0,40,0,40),
-    Position         = UDim2.new(0,12,1,-52),
-    BackgroundColor3 = RGB(10,10,15),
-    BackgroundTransparency = 0,
-    Text             = "UE",
-    TextColor3       = RGB(74,158,255),
-    TextSize         = 12,
-    Font             = Enum.Font.GothamBold,
-    ZIndex           = 200,
-});
-MakeCorner(ToggleBtn, 6);
-MakeStroke(ToggleBtn, RGB(26,42,64), 1);
-
--- Panel
-local Panel = MakeFrame(ScreenGui, {
-    Size             = UDim2.new(0,215,0,32),
-    Position         = UDim2.new(0,12,1,-98),
-    BackgroundColor3 = RGB(8,8,13),
-    BackgroundTransparency = 0,
-    ClipsDescendants = true,
-    Visible          = false,
-    ZIndex           = 199,
-});
-MakeCorner(Panel, 6);
-MakeStroke(Panel, RGB(21,32,48), 1);
-
--- Title bar
-local TitleBar = MakeFrame(Panel, {
-    Size             = UDim2.new(1,0,0,30),
-    BackgroundColor3 = RGB(13,26,42),
-    BackgroundTransparency = 0,
-    ZIndex           = 200,
-});
-MakeCorner(TitleBar, 6);
-
--- Pulse dot
-local Dot = MakeFrame(TitleBar, {
-    Size             = UDim2.new(0,6,0,6),
-    Position         = UDim2.new(0,10,0.5,-3),
-    BackgroundColor3 = RGB(0,220,120),
-    BackgroundTransparency = 0,
-    ZIndex           = 201,
-});
-MakeCorner(Dot, 10);
-task.spawn(function()
-    while ScreenGui.Parent do
-        TweenService:Create(Dot,
-            TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {BackgroundTransparency = 0.75}
-        ):Play();
-        task.wait(1.8);
-    end;
-end);
-
-MakeLabel(TitleBar, {
-    Size       = UDim2.new(1,0,1,0),
-    Text       = "UE RAGE",
-    TextColor3 = RGB(74,158,255),
-    TextSize   = 11,
-    Font       = Enum.Font.GothamBold,
-    ZIndex     = 201,
-});
-
--- Scroll list
-local ScrollFrame = Instance.new("ScrollingFrame");
-ScrollFrame.Size                   = UDim2.new(1,0,1,-30);
-ScrollFrame.Position               = UDim2.new(0,0,0,30);
-ScrollFrame.BackgroundTransparency = 1;
-ScrollFrame.BorderSizePixel        = 0;
-ScrollFrame.ScrollBarThickness     = 2;
-ScrollFrame.ScrollBarImageColor3   = RGB(30,58,90);
-ScrollFrame.CanvasSize             = UDim2.new(0,0,0,0);
-ScrollFrame.AutomaticCanvasSize    = Enum.AutomaticSize.Y;
-ScrollFrame.ZIndex                 = 200;
-ScrollFrame.Parent                 = Panel;
-
-local Layout = Instance.new("UIListLayout", ScrollFrame);
-Layout.Padding   = UDim.new(0,1);
-Layout.SortOrder = Enum.SortOrder.LayoutOrder;
-
-local ListPad = Instance.new("UIPadding", ScrollFrame);
-ListPad.PaddingLeft   = UDim.new(0,8);
-ListPad.PaddingRight  = UDim.new(0,8);
-ListPad.PaddingTop    = UDim.new(0,4);
-ListPad.PaddingBottom = UDim.new(0,8);
-
-local function Section(text, order)
-    local s = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=order, ZIndex=200});
-    MakeLabel(s, {Size=UDim2.new(1,0,1,0), Text=text, TextColor3=RGB(40,70,100),
-        TextSize=9, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-end
-
-local function Row(label, cfgKey, order)
-    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
-    MakeLabel(row, {Size=UDim2.new(1,-40,1,0), Text=label, TextColor3=RGB(138,168,200),
-        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-
-    local pill = MakeBtn(row, {
-        Size=UDim2.new(0,32,0,16), Position=UDim2.new(1,-32,0.5,-8),
-        BackgroundColor3=RGB(26,26,42), BackgroundTransparency=0, ZIndex=201});
-    MakeCorner(pill, 8);
-
-    local knob = MakeFrame(pill, {
-        Size=UDim2.new(0,11,0,11), Position=UDim2.new(0,2,0.5,-5),
-        BackgroundColor3=RGB(74,74,106), BackgroundTransparency=0, ZIndex=202});
-    MakeCorner(knob, 6);
-
-    local function Refresh()
-        local on = CFG[cfgKey];
-        pill.BackgroundColor3 = on and RGB(26,90,255) or RGB(26,26,42);
-        TweenService:Create(knob, TweenInfo.new(0.13), {
-            Position         = on and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
-            BackgroundColor3 = on and RGB(160,200,255) or RGB(74,74,106),
-        }):Play();
-    end;
-    Refresh();
-
-    pill.MouseButton1Click:Connect(function()
-        CFG[cfgKey] = not CFG[cfgKey];
-        Refresh();
-    end);
-end
-
-local function DropRow(label, cfgKey, options, order)
-    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
-    MakeLabel(row, {Size=UDim2.new(1,-82,1,0), Text=label, TextColor3=RGB(138,168,200),
-        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-
-    local btn = MakeBtn(row, {
-        Size=UDim2.new(0,76,0,18), Position=UDim2.new(1,-76,0.5,-9),
-        BackgroundColor3=RGB(13,26,42), BackgroundTransparency=0,
-        TextColor3=RGB(74,158,255), TextSize=9, Font=Enum.Font.GothamBold,
-        Text=tostring(CFG[cfgKey]), ZIndex=201});
-    MakeCorner(btn, 3);
-
-    local idx = 1;
-    for i,v in ipairs(options) do if tostring(v) == tostring(CFG[cfgKey]) then idx=i; break; end; end;
-
-    btn.MouseButton1Click:Connect(function()
-        idx = (idx % #options) + 1;
-        CFG[cfgKey] = options[idx];
-        btn.Text = tostring(options[idx]);
-    end);
-end
-
--- -- Row / section helpers for inline build ----------------------
-local function SectionInline(text, order)
-    local s = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=order, ZIndex=200});
-    MakeLabel(s, {Size=UDim2.new(1,0,1,0), Text=text, TextColor3=RGB(40,70,100),
-        TextSize=9, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-end;
-
--- Generic bool toggle backed by a getter/setter (for non-CFG bools)
-local function RowFn(label, getter, setter, order)
-    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
-    MakeLabel(row, {Size=UDim2.new(1,-40,1,0), Text=label, TextColor3=RGB(138,168,200),
-        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-    local pill = MakeBtn(row, {
-        Size=UDim2.new(0,32,0,16), Position=UDim2.new(1,-32,0.5,-8),
-        BackgroundColor3=RGB(26,26,42), BackgroundTransparency=0, ZIndex=201});
-    MakeCorner(pill, 8);
-    local knob = MakeFrame(pill, {
-        Size=UDim2.new(0,11,0,11), Position=UDim2.new(0,2,0.5,-5),
-        BackgroundColor3=RGB(74,74,106), BackgroundTransparency=0, ZIndex=202});
-    MakeCorner(knob, 6);
-    local function Ref()
-        local on = getter();
-        pill.BackgroundColor3 = on and RGB(26,90,255) or RGB(26,26,42);
-        TweenService:Create(knob, TweenInfo.new(0.13), {
-            Position         = on and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
-            BackgroundColor3 = on and RGB(160,200,255) or RGB(74,74,106),
-        }):Play();
-    end;
-    Ref();
-    pill.MouseButton1Click:Connect(function() setter(); Ref(); end);
-end;
-
--- Build rows
-Section("EXPLOIT",      0);
-Row("Reload Exploit",     "ReloadExploit",   1);
-Row("Reload Loop",        "ReloadLoop",       2);
-Row("No Spread",          "NoSpread",         3);
-Row("Full Auto",          "FullAuto",         4);
-
-Section("RESOLVER",    10);
-Row("Standard Resolver",  "Resolver",         11);
-Row("Auto-Learn",         "AutoLearn",        12);
-Row("Anti-Bait",          "AntiBait",         13);
-Row("Advanced Mode",      "AdvancedMode",     14);
-Row("Yaw Scoring",        "YawScoring",       15);
-
-Section("VOID RES",    20);
-Row("Anti-Void Resolve",  "AntiVoidResolve",  21);
-DropRow("Mode",           "VoidResolveMode",  {"Adaptive","Extrapolate","Average","Last"}, 22);
-
-Section("PROTECTION",  30);
-Row("Self Anti-Void",     "SelfAntiVoid",     31);
-Row("Anti-AFK",           "AntiAFK",          32);
-Row("FPS Uncap",          "FPSUncap",         33);
-do
-    local note = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=34, ZIndex=200});
-    MakeLabel(note, {Size=UDim2.new(1,0,1,0),
-        Text = IsMobile and "Void: tap button near toggle" or "Void: press G key",
-        TextColor3=RGB(60,90,60), TextSize=9, Font=Enum.Font.Gotham,
-        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-end;
-
-SectionInline("GRAPHICS",     50);
-RowFn("Low Detail",
-    function() return LowDetailActive; end,
-    function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; end,
-    51);
-
-SectionInline("SLINGSHOT",    60);
-RowFn("OP Mode",
-    function() return SlingshotOP; end,
-    function() SlingshotOP = not SlingshotOP; end,
-    61);
-
-SectionInline("EXPERIMENTAL", 70);
-RowFn("Packet Burst",
-    function() return PacketBurst; end,
-    function() PacketBurst = not PacketBurst; end,
-    71);
-
--- Auto-resize
-local function ResizePanel()
-    local h   = Layout.AbsoluteContentSize.Y + 30 + 12;
-    local cap = math.min(h, 360);
-    local px  = Panel.Position.X.Offset;
-    Panel.Size     = UDim2.new(0,215,0,cap);
-    Panel.Position = UDim2.new(0,px,1,-(cap+52));
-end;
-Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ResizePanel);
-task.defer(ResizePanel);
-
--- Open/close
-local PanelOpen = false;
-local function TogglePanel()
-    PanelOpen = not PanelOpen;
-    Panel.Visible = PanelOpen;
-    ToggleBtn.BackgroundColor3 = PanelOpen and RGB(13,26,42) or RGB(10,10,15);
-end;
-ToggleBtn.MouseButton1Click:Connect(TogglePanel);
-
--- Drag
-do
-    local dragging = false;
-    local dragStart = Vector2.new(0,0);
-    local startPX, startPY = 0, 0;
-
-    TitleBar.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging  = true;
-            dragStart = Vector2.new(inp.Position.X, inp.Position.Y);
-            startPX   = Panel.Position.X.Offset;
-            startPY   = Panel.Position.Y.Offset;
-        end;
-    end);
-
-    TitleBar.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging = false;
-        end;
-    end);
-
-    UserInputService.InputChanged:Connect(function(inp)
-        if not dragging then return; end;
-        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
-        and inp.UserInputType ~= Enum.UserInputType.Touch then return; end;
-        local dx = inp.Position.X - dragStart.X;
-        local dy = inp.Position.Y - dragStart.Y;
-        Panel.Position     = UDim2.new(0, startPX+dx, 1, startPY+dy);
-        ToggleBtn.Position = UDim2.new(0, startPX+dx, 1, startPY+dy+Panel.AbsoluteSize.Y+6);
-    end);
-end;
-
--- -----------------------------------------------------------------
---  SLINGSHOT OPTIMIZATIONS
---
---  Slingshot-specific tuning applied on top of the base resolver:
---
---  1. Prediction time tuned to slingshot projectile speed (~180 su/s)
---     At 200ms ping: flight_time = dist/180 + 0.200 latency
---     We cache this per-enemy and update it each frame based on
---     their current distance to LocalPlayer.
---
---  2. Firerate patch: slingshot has an inherent delay between shots.
---     We zero FireRate and ReloadLength aggressively.
---
---  3. Resolver bias: slingshot shots are slow projectiles so
---     Velocity method is almost always better than History.
---     We boost Velocity method score by default for all enemies
---     when slingshot is held.
---
---  4. Spread is already zeroed by NoSpread, but we also hook
---     the projectile module specifically for slingshot to ensure
---     the actual projectile launch direction is never randomized.
--- -----------------------------------------------------------------
-
-local SLING_SPEED   = 180;  -- studs/sec (slingshot projectile)
-local SLING_GRAVITY = 196.2; -- Roblox gravity (workspace.Gravity default)
-
--- Cache workspace gravity in case server changed it
-pcall(function() SLING_GRAVITY = workspace.Gravity; end);
-
--- Track whether local player is holding slingshot
-local HoldingSlingshot = false;
-
-local function CheckWeapon()
-    local char = GetChar();
-    if not char then HoldingSlingshot = false; return; end;
-    local tool = char:FindFirstChildOfClass("Tool");
-    HoldingSlingshot = tool and tool.Name:lower():find("slingshot") ~= nil or false;
-end;
-
-RunService.Heartbeat:Connect(CheckWeapon);
-
--- Per-enemy slingshot prediction (accounts for distance + ping + gravity drop)
-local PING_ESTIMATE = 0.200; -- 200ms baseline for Singapore servers
--- Try to read actual ping from Stats
-pcall(function()
-    local stats = game:GetService("Stats");
-    local net   = stats:FindFirstChild("Network");
-    local ping  = net and net:FindFirstChild("ServerStatsItem") -- varies by executor
-    -- Fallback: keep 0.200
-end);
-
-local function GetSlingshotPred(player)
-    if not HoldingSlingshot then return nil; end;
-    local myRoot = GetRoot();
-    local thRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart");
-    if not myRoot or not thRoot then return nil; end;
-
-    local dist     = (myRoot.Position - thRoot.Position).Magnitude;
-    local tof      = dist / SLING_SPEED;           -- time of flight
-    local totalLag = tof + PING_ESTIMATE;           -- total lag to account for
-
-    -- Gravity drop Y component: 0.5 * g * tof^2 (we aim higher to compensate)
-    local gravDrop = 0.5 * SLING_GRAVITY * (tof * tof);
-
-    return totalLag, gravDrop;
-end;
-
--- Override rOptimalPred per-enemy every frame when holding slingshot
-RunService.Heartbeat:Connect(function()
-    if not HoldingSlingshot then return; end;
-    for player, rd in pairs(DB) do
-        if not IsAlive(player) then continue; end;
-        local pred, drop = GetSlingshotPred(player);
-        if pred then
-            rd.rOptimalPred = pred;
-            rd.gravDrop     = drop or 0;
-            -- Bias resolver toward Velocity when we're holding slingshot
-            -- (slow projectile = velocity prediction is almost always best)
-            if rd.rMethodAcc[RMethod.Velocity] then
-                rd.rMethodAcc[RMethod.Velocity] = math.min(100,
-                    rd.rMethodAcc[RMethod.Velocity] + 0.5);
-            end;
-        end;
-    end;
-end);
-
 -- -- Slingshot base patch + OP mode ------------------------------
 local SlingshotOP = false; -- toggled from GUI (off by default)
 
@@ -1690,6 +1266,7 @@ task.spawn(function()
     PatchSlingshot();
     while task.wait(3) do PatchSlingshot(); end;
 end);
+
 
 -- -----------------------------------------------------------------
 --  LOW DETAIL MODE
@@ -1825,6 +1402,7 @@ local function RemoveLowDetail()
     -- full table backup; rejoin or disable/enable recommended.
     print("[UE] Low Detail OFF -- rejoin recommended to restore particles/decals");
 end;
+
 
 -- -----------------------------------------------------------------
 --  TRACKER HUD
@@ -2140,6 +1718,7 @@ if getgenv and getgenv().UERage then
     getgenv().UERage.OnMiss = OnMiss;
 end;
 
+
 -- -----------------------------------------------------------------
 --  EXPERIMENTAL: PACKET BURST FIRE
 --  Fires Activate() N extra times in the same frame on each shot.
@@ -2205,9 +1784,588 @@ end;
 -- -----------------------------------------------------------------
 --  DONE
 -- -----------------------------------------------------------------
-print("[UE Rage v6] Loaded");
-print("  Resolver:        ON  |  Anti-Bait: ON  |  Void: " .. CFG.VoidResolveMode);
-print("  Slingshot OP:    OFF (toggle in panel)");
-print("  Low Detail:      OFF (toggle in panel) -- nuclear mode");
-print("  Packet Burst:    OFF [EXPERIMENTAL]");
-print("  Tracker HUD:     draggable, bottom-right");
+
+
+-- =================================================================
+--  GUI v7  -  Clean rewrite
+-- =================================================================
+
+local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end
+
+-- Safe parent
+local GUI_PARENT;
+pcall(function()
+    if gethui then
+        local h = gethui();
+        if h and typeof(h) == "Instance" then GUI_PARENT = h; end;
+    end;
+end);
+if not GUI_PARENT then
+    GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
+end;
+
+-- Destroy old instances
+pcall(function()
+    for _, n in ipairs({"UERageGui","UEVoidBtn","UEVoidHint","UETrackerGui"}) do
+        local o = GUI_PARENT:FindFirstChild(n);
+        if o then o:Destroy(); end;
+    end;
+end);
+
+-- Main ScreenGui
+local SG = Instance.new("ScreenGui");
+SG.Name           = "UERageGui";
+SG.ResetOnSpawn   = false;
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+SG.IgnoreGuiInset = true;
+SG.DisplayOrder   = 999;
+SG.Parent         = GUI_PARENT;
+
+-- Helpers
+local function Corner(inst, r)
+    local c = Instance.new("UICorner", inst);
+    c.CornerRadius = UDim.new(0, r or 6);
+end;
+local function Stroke(inst, col, th)
+    local s = Instance.new("UIStroke", inst);
+    s.Color = col or RGB(30,40,55);
+    s.Thickness = th or 1;
+end;
+local function NewFrame(parent, bg, props)
+    local f = Instance.new("Frame");
+    f.BackgroundColor3 = bg or RGB(12,12,18);
+    f.BackgroundTransparency = 0;
+    f.BorderSizePixel = 0;
+    f.Parent = parent;
+    if props then for k,v in pairs(props) do f[k]=v; end; end;
+    return f;
+end;
+local function NewLabel(parent, txt, tsz, col, props)
+    local l = Instance.new("TextLabel");
+    l.BackgroundTransparency = 1;
+    l.BorderSizePixel = 0;
+    l.Text = txt or "";
+    l.TextSize = tsz or 10;
+    l.Font = Enum.Font.Gotham;
+    l.TextColor3 = col or RGB(180,195,215);
+    l.TextXAlignment = Enum.TextXAlignment.Left;
+    l.Parent = parent;
+    if props then for k,v in pairs(props) do l[k]=v; end; end;
+    return l;
+end;
+local function NewBtn(parent, props)
+    local b = Instance.new("TextButton");
+    b.BackgroundTransparency = 1;
+    b.BorderSizePixel = 0;
+    b.AutoButtonColor = false;
+    b.Text = "";
+    b.Parent = parent;
+    if props then for k,v in pairs(props) do b[k]=v; end; end;
+    return b;
+end;
+
+-- Toggle button (lower-left)
+local ToggleBtn = NewBtn(SG, {
+    Size             = UDim2.new(0,42,0,24),
+    Position         = UDim2.new(0,10,1,-34),
+    BackgroundColor3 = RGB(8,10,18),
+    BackgroundTransparency = 0,
+    Text             = "UE",
+    TextColor3       = RGB(70,150,255),
+    TextSize         = 11,
+    Font             = Enum.Font.GothamBold,
+    ZIndex           = 200,
+});
+Corner(ToggleBtn, 5);
+Stroke(ToggleBtn, RGB(22,36,60), 1);
+
+-- Panel
+local Panel = NewFrame(SG, RGB(8,9,15), {
+    Size             = UDim2.new(0,198,0,30),
+    Position         = UDim2.new(0,10,1,-62),
+    ClipsDescendants = true,
+    Visible          = false,
+    ZIndex           = 190,
+});
+Corner(Panel, 7);
+Stroke(Panel, RGB(20,32,50), 1);
+
+-- Title bar
+local TitleBar = NewFrame(Panel, RGB(10,15,26), {
+    Size   = UDim2.new(1,0,0,26),
+    ZIndex = 191,
+});
+Corner(TitleBar, 7);
+
+-- Pulse dot
+local PDot = NewFrame(TitleBar, RGB(45,210,100), {
+    Size     = UDim2.new(0,5,0,5),
+    Position = UDim2.new(0,8,0.5,-2),
+    ZIndex   = 193,
+});
+Corner(PDot, 10);
+task.spawn(function()
+    while SG.Parent do
+        TweenService:Create(PDot,
+            TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,0,true),
+            {BackgroundTransparency=0.75}
+        ):Play();
+        task.wait(2);
+    end;
+end);
+
+NewLabel(TitleBar, "UE RAGE", 10, RGB(70,150,255), {
+    Size           = UDim2.new(1,0,1,0),
+    ZIndex         = 192,
+    Font           = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Center,
+});
+
+-- Scroll list
+local Scroll = Instance.new("ScrollingFrame");
+Scroll.Size                   = UDim2.new(1,0,1,-26);
+Scroll.Position               = UDim2.new(0,0,0,26);
+Scroll.BackgroundTransparency = 1;
+Scroll.BorderSizePixel        = 0;
+Scroll.ScrollBarThickness     = 2;
+Scroll.ScrollBarImageColor3   = RGB(35,60,100);
+Scroll.CanvasSize             = UDim2.new(0,0,0,0);
+Scroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y;
+Scroll.ZIndex                 = 191;
+Scroll.Parent                 = Panel;
+
+local ListLayout = Instance.new("UIListLayout", Scroll);
+ListLayout.Padding   = UDim.new(0,0);
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder;
+
+local ListPad = Instance.new("UIPadding", Scroll);
+ListPad.PaddingLeft   = UDim.new(0,7);
+ListPad.PaddingRight  = UDim.new(0,7);
+ListPad.PaddingTop    = UDim.new(0,3);
+ListPad.PaddingBottom = UDim.new(0,5);
+
+-- Row builders
+local _ro = 0;
+local function Sect(txt)
+    _ro = _ro + 1;
+    local f = NewFrame(Scroll, RGB(8,9,15), {Size=UDim2.new(1,0,0,18),LayoutOrder=_ro,ZIndex=191});
+    f.BackgroundTransparency = 1;
+    NewLabel(f, txt, 8, RGB(40,70,108), {Size=UDim2.new(1,0,1,0),ZIndex=192,Font=Enum.Font.GothamBold});
+end;
+
+local function MakePill(parent)
+    local pill = NewBtn(parent, {
+        Size             = UDim2.new(0,28,0,13),
+        Position         = UDim2.new(1,-28,0.5,-6),
+        BackgroundColor3 = RGB(20,20,32),
+        BackgroundTransparency = 0,
+        ZIndex           = 193,
+    });
+    Corner(pill, 7);
+    local knob = NewFrame(pill, RGB(60,60,85), {
+        Size     = UDim2.new(0,9,0,9),
+        Position = UDim2.new(0,2,0.5,-4),
+        ZIndex   = 194,
+    });
+    Corner(knob, 5);
+    return pill, knob;
+end;
+
+local function MakeRow(txt)
+    _ro = _ro + 1;
+    local row = NewFrame(Scroll, RGB(8,9,15), {Size=UDim2.new(1,0,0,25),LayoutOrder=_ro,ZIndex=191});
+    row.BackgroundTransparency = 1;
+    NewLabel(row, txt, 10, RGB(150,168,192), {Size=UDim2.new(1,-36,1,0),ZIndex=192,Font=Enum.Font.Gotham});
+    return row;
+end;
+
+local function Row(txt, key)
+    local row = MakeRow(txt);
+    local pill, knob = MakePill(row);
+    local function Ref()
+        local on = CFG[key];
+        pill.BackgroundColor3 = on and RGB(28,95,240) or RGB(20,20,32);
+        TweenService:Create(knob,TweenInfo.new(0.12),{
+            Position         = on and UDim2.new(0,17,0.5,-4) or UDim2.new(0,2,0.5,-4),
+            BackgroundColor3 = on and RGB(140,188,255) or RGB(60,60,85),
+        }):Play();
+    end;
+    Ref();
+    pill.MouseButton1Click:Connect(function() CFG[key]=not CFG[key]; Ref(); end);
+end;
+
+local function RowFn(txt, getter, setter)
+    local row = MakeRow(txt);
+    local pill, knob = MakePill(row);
+    local function Ref()
+        local on = getter();
+        pill.BackgroundColor3 = on and RGB(28,95,240) or RGB(20,20,32);
+        TweenService:Create(knob,TweenInfo.new(0.12),{
+            Position         = on and UDim2.new(0,17,0.5,-4) or UDim2.new(0,2,0.5,-4),
+            BackgroundColor3 = on and RGB(140,188,255) or RGB(60,60,85),
+        }):Play();
+    end;
+    Ref();
+    pill.MouseButton1Click:Connect(function() setter(); Ref(); end);
+end;
+
+local function DropRow(txt, key, options)
+    _ro = _ro + 1;
+    local row = NewFrame(Scroll, RGB(8,9,15), {Size=UDim2.new(1,0,0,25),LayoutOrder=_ro,ZIndex=191});
+    row.BackgroundTransparency = 1;
+    NewLabel(row, txt, 10, RGB(150,168,192), {Size=UDim2.new(1,-74,1,0),ZIndex=192,Font=Enum.Font.Gotham});
+    local db = NewBtn(row, {
+        Size             = UDim2.new(0,68,0,15),
+        Position         = UDim2.new(1,-68,0.5,-7),
+        BackgroundColor3 = RGB(12,19,34),
+        BackgroundTransparency = 0,
+        Text             = tostring(CFG[key]),
+        TextColor3       = RGB(70,150,255),
+        TextSize         = 8,
+        Font             = Enum.Font.GothamBold,
+        ZIndex           = 192,
+    });
+    Corner(db,4);
+    local idx=1;
+    for i,v in ipairs(options) do if tostring(v)==tostring(CFG[key]) then idx=i; break; end; end;
+    db.MouseButton1Click:Connect(function()
+        idx=(idx%#options)+1; CFG[key]=options[idx]; db.Text=tostring(options[idx]);
+    end);
+end;
+
+-- Build rows
+Sect("EXPLOIT");
+Row("Reload Exploit",    "ReloadExploit");
+Row("Reload Loop",       "ReloadLoop");
+Row("No Spread",         "NoSpread");
+Row("Full Auto",         "FullAuto");
+
+Sect("RESOLVER");
+Row("Standard Resolver", "Resolver");
+Row("Auto-Learn",        "AutoLearn");
+Row("Anti-Bait",         "AntiBait");
+Row("Advanced Mode",     "AdvancedMode");
+Row("Yaw Scoring",       "YawScoring");
+
+Sect("VOID RES");
+Row("Anti-Void Resolve", "AntiVoidResolve");
+DropRow("Mode",          "VoidResolveMode", {"Adaptive","Extrapolate","Average","Last"});
+
+Sect("PROTECTION");
+Row("Self Anti-Void",    "SelfAntiVoid");
+Row("Anti-AFK",          "AntiAFK");
+Row("FPS Uncap",         "FPSUncap");
+
+do
+    _ro = _ro + 1;
+    local nf = NewFrame(Scroll, RGB(8,9,15), {Size=UDim2.new(1,0,0,14),LayoutOrder=_ro,ZIndex=191});
+    nf.BackgroundTransparency = 1;
+    NewLabel(nf, IsMobile and "Void: button near UE toggle" or "Void: press G",
+        8, RGB(45,80,50), {Size=UDim2.new(1,0,1,0),ZIndex=192});
+end;
+
+Sect("GRAPHICS");
+RowFn("Low Detail",
+    function() return LowDetailActive; end,
+    function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; end);
+
+Sect("SLINGSHOT");
+RowFn("OP Mode",
+    function() return SlingshotOP; end,
+    function() SlingshotOP = not SlingshotOP; end);
+
+Sect("EXPERIMENTAL");
+RowFn("Packet Burst",
+    function() return PacketBurst; end,
+    function() PacketBurst = not PacketBurst; end);
+
+-- Auto-resize
+local function ResizePanel()
+    local h   = ListLayout.AbsoluteContentSize.Y + 26 + 6;
+    local cap = math.min(h, 340);
+    local px  = Panel.Position.X.Offset;
+    Panel.Size     = UDim2.new(0,198,0,cap);
+    Panel.Position = UDim2.new(0,px,1,-(cap+8));
+end;
+ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ResizePanel);
+task.defer(ResizePanel);
+
+-- Open/close
+local PanelOpen = false;
+ToggleBtn.MouseButton1Click:Connect(function()
+    PanelOpen = not PanelOpen;
+    Panel.Visible = PanelOpen;
+    ToggleBtn.BackgroundColor3 = PanelOpen and RGB(12,19,34) or RGB(8,10,18);
+end);
+
+-- Drag panel
+do
+    local drag,dsx,dsy,dpx,dpy = false,0,0,0,0;
+    TitleBar.InputBegan:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then
+            drag=true; dsx=inp.Position.X; dsy=inp.Position.Y;
+            dpx=Panel.Position.X.Offset; dpy=Panel.Position.Y.Offset;
+        end;
+    end);
+    TitleBar.InputEnded:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then drag=false; end;
+    end);
+    UserInputService.InputChanged:Connect(function(inp)
+        if not drag then return; end;
+        if inp.UserInputType~=Enum.UserInputType.MouseMovement
+        and inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+        local nx=dpx+(inp.Position.X-dsx);
+        local ny=dpy+(inp.Position.Y-dsy);
+        Panel.Position     = UDim2.new(0,nx,1,ny);
+        ToggleBtn.Position = UDim2.new(0,nx,1,ny+Panel.AbsoluteSize.Y+4);
+    end);
+end;
+
+-- =================================================================
+--  VOID SPAM UI
+-- =================================================================
+local VS_SG = Instance.new("ScreenGui");
+VS_SG.Name           = IsMobile and "UEVoidBtn" or "UEVoidHint";
+VS_SG.ResetOnSpawn   = false;
+VS_SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+VS_SG.IgnoreGuiInset = true;
+VS_SG.DisplayOrder   = 998;
+VS_SG.Parent         = GUI_PARENT;
+
+if IsMobile then
+    local VBtn = NewBtn(VS_SG, {
+        Size             = UDim2.new(0,42,0,24),
+        Position         = UDim2.new(0,58,1,-34),
+        BackgroundColor3 = RGB(32,7,7),
+        BackgroundTransparency = 0,
+        Text             = "VOID",
+        TextColor3       = RGB(240,65,65),
+        TextSize         = 10,
+        Font             = Enum.Font.GothamBold,
+        ZIndex           = 300,
+    });
+    Corner(VBtn,5);
+    Stroke(VBtn,RGB(70,12,12),1);
+
+    local VDot = NewFrame(VBtn, RGB(65,65,78), {
+        Size=UDim2.new(0,5,0,5), Position=UDim2.new(1,-7,0,4), ZIndex=301,
+    });
+    Corner(VDot,10);
+
+    local function RefV()
+        if VOID_CFG.Enabled then
+            VBtn.BackgroundColor3=RGB(80,12,12);
+            VBtn.TextColor3=RGB(255,100,100);
+            VDot.BackgroundColor3=RGB(45,210,90);
+        else
+            VBtn.BackgroundColor3=RGB(32,7,7);
+            VBtn.TextColor3=RGB(240,65,65);
+            VDot.BackgroundColor3=RGB(65,65,78);
+        end;
+    end;
+    VBtn.MouseButton1Click:Connect(function() VS_Toggle(); RefV(); end);
+
+    -- Drag void btn
+    do
+        local vd,vdsx,vdsy,vdpx,vdpy=false,0,0,0,0;
+        VBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch then
+                vd=true; vdsx=inp.Position.X; vdsy=inp.Position.Y;
+                vdpx=VBtn.Position.X.Offset; vdpy=VBtn.Position.Y.Offset;
+            end;
+        end);
+        VBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch then vd=false; end;
+        end);
+        UserInputService.InputChanged:Connect(function(inp)
+            if not vd then return; end;
+            if inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+            VBtn.Position=UDim2.new(0,vdpx+(inp.Position.X-vdsx),1,vdpy+(inp.Position.Y-vdsy));
+        end);
+    end;
+else
+    local Hint = NewLabel(VS_SG, "G  -  Void: OFF", 10, RGB(130,145,165), {
+        Size             = UDim2.new(0,155,0,20),
+        Position         = UDim2.new(0.5,-77,1,-28),
+        BackgroundColor3 = RGB(8,9,15),
+        BackgroundTransparency = 0.2,
+        TextXAlignment   = Enum.TextXAlignment.Center,
+        Font             = Enum.Font.GothamBold,
+        ZIndex           = 300,
+    });
+    Corner(Hint,4);
+    local function RefH()
+        Hint.Text      = VOID_CFG.Enabled and "G  -  Void: ON" or "G  -  Void: OFF";
+        Hint.TextColor3= VOID_CFG.Enabled and RGB(50,210,100) or RGB(130,145,165);
+    end;
+    UserInputService.InputBegan:Connect(function(inp,gpe)
+        if gpe then return; end;
+        if inp.KeyCode==Enum.KeyCode.G then VS_Toggle(); RefH(); end;
+    end);
+end;
+
+-- =================================================================
+--  TRACKER HUD
+-- =================================================================
+local TR_SG = Instance.new("ScreenGui");
+TR_SG.Name           = "UETrackerGui";
+TR_SG.ResetOnSpawn   = false;
+TR_SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+TR_SG.IgnoreGuiInset = true;
+TR_SG.DisplayOrder   = 997;
+TR_SG.Parent         = GUI_PARENT;
+
+local TrBox = NewFrame(TR_SG, RGB(7,8,13), {
+    Size          = UDim2.new(0,150,0,10),
+    Position      = UDim2.new(1,-158,1,-230),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    ZIndex        = 400,
+});
+Corner(TrBox,7);
+Stroke(TrBox,RGB(16,26,42),1);
+
+local TrPad = Instance.new("UIPadding",TrBox);
+TrPad.PaddingLeft   = UDim.new(0,7);
+TrPad.PaddingRight  = UDim.new(0,7);
+TrPad.PaddingTop    = UDim.new(0,5);
+TrPad.PaddingBottom = UDim.new(0,5);
+
+local TrList = Instance.new("UIListLayout",TrBox);
+TrList.Padding   = UDim.new(0,0);
+TrList.SortOrder = Enum.SortOrder.LayoutOrder;
+
+-- Header + drag handle
+local TrHdr = NewLabel(TrBox, "UE TRACKER", 9, RGB(70,150,255), {
+    Size           = UDim2.new(1,0,0,14),
+    LayoutOrder    = 0,
+    ZIndex         = 401,
+    Font           = Enum.Font.GothamBold,
+    Active         = true,
+});
+
+local TrDiv = NewFrame(TrBox, RGB(16,26,42), {
+    Size=UDim2.new(1,0,0,1), LayoutOrder=1, ZIndex=401,
+});
+TrDiv.BackgroundTransparency = 0;
+
+local TrRows = {};
+local tro = 2;
+local function TRow(key)
+    local l = NewLabel(TrBox, "", 9, RGB(135,155,180), {
+        Size=UDim2.new(1,0,0,12), LayoutOrder=tro, ZIndex=401, Font=Enum.Font.Gotham,
+    });
+    tro=tro+1; TrRows[key]=l;
+end;
+
+TRow("kills"); TRow("deaths"); TRow("kd"); TRow("hitrate"); TRow("shots");
+TRow("resolver"); TRow("void"); TRow("sling"); TRow("slingop"); TRow("burst");
+TRow("ld"); TRow("fps"); TRow("uptime");
+
+-- Drag tracker
+do
+    local td,tdsx,tdsy,tdpx,tdpy=false,0,0,0,0;
+    TrHdr.InputBegan:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then
+            td=true; tdsx=inp.Position.X; tdsy=inp.Position.Y;
+            tdpx=TrBox.Position.X.Offset; tdpy=TrBox.Position.Y.Offset;
+        end;
+    end);
+    TrHdr.InputEnded:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then td=false; end;
+    end);
+    UserInputService.InputChanged:Connect(function(inp)
+        if not td then return; end;
+        if inp.UserInputType~=Enum.UserInputType.MouseMovement
+        and inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+        TrBox.Position=UDim2.new(1,tdpx+(inp.Position.X-tdsx),1,tdpy+(inp.Position.Y-tdsy));
+    end);
+end;
+
+-- FPS
+local _ff,_fl,_fv=0,tick(),0;
+RunService.Heartbeat:Connect(function()
+    _ff=_ff+1;
+    local n=tick();
+    if n-_fl>=0.5 then _fv=math.floor(_ff/(n-_fl)); _ff=0; _fl=n; end;
+end);
+
+local function Fmt(lbl,val)
+    return lbl..string.rep(" ",math.max(1,11-#lbl))..tostring(val);
+end;
+
+local function GetPhase()
+    local best,phase=0,"collecting";
+    for _,rd in pairs(DB) do
+        if rd.rPhase=="optimized" and rd.rConfidence>best then
+            best=rd.rConfidence; phase="opt "..rd.rConfidence.."%";
+        elseif rd.rPhase=="testing" and phase=="collecting" then
+            phase="testing";
+        end;
+    end;
+    return phase;
+end;
+
+task.spawn(function()
+    while TR_SG.Parent do
+        task.wait(0.15);
+        local kd = TRACKER.Deaths>0
+            and string.format("%.2f",TRACKER.Kills/TRACKER.Deaths)
+            or tostring(TRACKER.Kills);
+        local hr = TRACKER.Shots>0
+            and math.floor(TRACKER.Hits/TRACKER.Shots*100).."%"
+            or "0%";
+        local upt=math.floor(tick()-TRACKER.StartTime);
+        local us=upt<60 and upt.."s" or math.floor(upt/60).."m "..upt%60 .."s";
+
+        TrRows["kills"].Text    = Fmt("Kills",    TRACKER.Kills);
+        TrRows["deaths"].Text   = Fmt("Deaths",   TRACKER.Deaths);
+        TrRows["kd"].Text       = Fmt("K/D",      kd);
+        TrRows["hitrate"].Text  = Fmt("Hit Rate", hr);
+        TrRows["shots"].Text    = Fmt("Shots",    TRACKER.Shots);
+        TrRows["resolver"].Text = Fmt("Resolver", GetPhase());
+        TrRows["void"].Text     = Fmt("Void",     VOID_CFG.Enabled and "ON" or "off");
+        TrRows["sling"].Text    = Fmt("Sling",    HoldingSlingshot and "ACTIVE" or "off");
+        TrRows["slingop"].Text  = Fmt("Sling OP", SlingshotOP and "ON" or "off");
+        TrRows["burst"].Text    = Fmt("Pkt Burst",PacketBurst and "ON" or "off");
+        TrRows["ld"].Text       = Fmt("Low Detail",LowDetailActive and "ON" or "off");
+        TrRows["fps"].Text      = Fmt("FPS",      _fv);
+        TrRows["uptime"].Text   = Fmt("Uptime",   us);
+
+        local kdn=tonumber(kd) or 0;
+        TrRows["kd"].TextColor3    = kdn>=2 and RGB(55,205,95) or kdn>=1 and RGB(205,185,55) or RGB(205,65,65);
+        TrRows["fps"].TextColor3   = _fv>=55 and RGB(55,205,95) or _fv>=30 and RGB(205,185,55) or RGB(205,65,65);
+        TrRows["void"].TextColor3  = VOID_CFG.Enabled and RGB(55,205,95) or RGB(95,95,115);
+        TrRows["sling"].TextColor3 = HoldingSlingshot and RGB(70,148,255) or RGB(95,95,115);
+        TrRows["slingop"].TextColor3 = SlingshotOP and RGB(245,145,45) or RGB(95,95,115);
+        TrRows["burst"].TextColor3   = PacketBurst and RGB(195,65,205) or RGB(95,95,115);
+    end;
+end);
+
+-- Wrap OnHit/OnMiss with tracker counts
+local _roh=OnHit; local _rom=OnMiss;
+OnHit=function(p) TRACKER.Hits=TRACKER.Hits+1; TRACKER.Shots=TRACKER.Shots+1; _roh(p); end;
+OnMiss=function(p) TRACKER.Shots=TRACKER.Shots+1; _rom(p); end;
+
+-- Update globals
+if getgenv then
+    local ue=getgenv().UERage or {};
+    ue.OnHit             = OnHit;
+    ue.OnMiss            = OnMiss;
+    ue.LowDetailToggle   = function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; return LowDetailActive; end;
+    ue.SlingshotOPToggle = function() SlingshotOP=not SlingshotOP; return SlingshotOP; end;
+    ue.PacketBurstToggle = function() PacketBurst=not PacketBurst; return PacketBurst; end;
+    ue.Tracker           = TRACKER;
+    getgenv().UERage     = ue;
+end;
+
+-- =================================================================
+--  DONE
+-- =================================================================
+print("[UE Rage v7] Loaded");
+print("  Resolver: ON | Anti-Bait: ON | Void: "..CFG.VoidResolveMode);
+print("  Slingshot OP: OFF | Low Detail: OFF | Packet Burst: OFF");
+print("  Tracker: bottom-right draggable | GUI: lower-left draggable");
