@@ -1,9 +1,9 @@
 --[[
-    ╔══════════════════════════════════════════════════════════════╗
-    ║          UE RIVALS — ULTIMATE RAGE LUA  v5                  ║
-    ║  Reload · Horizon Resolver · Adaptive Void · Full GUI        ║
-    ║                     by Xorfee                               ║
-    ╚══════════════════════════════════════════════════════════════╝
+    +==============================================================+
+    |          UE RIVALS - ULTIMATE RAGE LUA  v7                   |
+    |  Reload * Horizon Resolver * Adaptive Void * Full GUI        |
+    |                     by Bred                                  |
+    +==============================================================+
 
     RESOLVER CREDIT: Horizon v2.1 (resolver architecture + methods)
     Fused with our per-yaw adaptive scoring, bruteforce fallback,
@@ -12,29 +12,29 @@
     LOAD ORDER: Run BEFORE or alongside UE's main loader.
 
     FEATURES
-    ────────────────────────────────────────────────────────────────
-    [1]  Reload exploit    – zeroes bow/slingshot, 0.09 daggers
-    [2]  Reload loop       – re-patches every 8s
-    [3]  No-spread         – zeroes spread/bloom/recoil
-    [4]  Full-auto patch   – semi → auto
-    [5]  Standard Resolver – Velocity / History / BodyPart / Hybrid
+    ----------------------------------------------------------------
+    [1]  Reload exploit    - zeroes bow/slingshot, 0.09 daggers
+    [2]  Reload loop       - re-patches every 8s
+    [3]  No-spread         - zeroes spread/bloom/recoil
+    [4]  Full-auto patch   - semi > auto
+    [5]  Standard Resolver - Velocity / History / BodyPart / Hybrid
                              Auto-learns per player, 3 phases:
-                             Collecting → Testing → Optimized
+                             Collecting > Testing > Optimized
                              Desync intensity tracking built in
-    [6]  Anti-Bait Resolver– 6 methods: PreVoid / VelExtrap /
+    [6]  Anti-Bait Resolver- 6 methods: PreVoid / VelExtrap /
                              AltBody / NetPos / RevPred / Hybrid
                              Advanced weighted multi-resolve when
                              enemy is confirmed advanced config
-    [7]  Yaw Scoring       – per-player yaw offset scoring table
-                             +1.2 on hit, -0.4 on miss, 0.85× decay
+    [7]  Yaw Scoring       - per-player yaw offset scoring table
+                             +1.2 on hit, -0.4 on miss, 0.85 decay
                              Bruteforce sweep after 6 consecutive misses
-    [8]  Adaptive Void Res – detects void abusers, picks best of
+    [8]  Adaptive Void Res - detects void abusers, picks best of
                              Extrapolate/Average/Last per player
                              based on which historically lands hits
-    [9]  Self anti-void    – teleports local back if voided
+    [9]  Self anti-void    - teleports local back if voided
     [10] FPS uncap
     [11] Anti-AFK
-    [12] GUI               – draggable, lower-left toggle, mobile-safe
+    [12] GUI               - draggable, lower-left toggle, mobile-safe
 
     GLOBALS: getgenv().UERage
         .CFG               live config table
@@ -43,12 +43,12 @@
         .OnMiss(player)     call when shot misses
         .GetYaw(player)     current best yaw offset (degrees)
         .DB                 full resolver database
-    ────────────────────────────────────────────────────────────────
+    ----------------------------------------------------------------
 ]]
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  SERVICES
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local RunService        = game:GetService("RunService");
 local Players           = game:GetService("Players");
 local ReplicatedStorage = game:GetService("ReplicatedStorage");
@@ -61,9 +61,9 @@ local function GetChar()  return LocalPlayer.Character; end
 local function GetRoot()  local c = GetChar(); return c and c:FindFirstChild("HumanoidRootPart"); end
 local function GetHuman() local c = GetChar(); return c and c:FindFirstChildOfClass("Humanoid"); end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  CONFIG
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local CFG = {
     -- Exploits
     ReloadExploit    = true,
@@ -99,9 +99,9 @@ local CFG = {
     AntiAFK          = true,
 };
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [1]+[2]  RELOAD EXPLOIT
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local ReloadOverrides = { bow = 0, slingshot = 0, daggers = 0.09 };
 
 local function ApplyReload(Items)
@@ -130,9 +130,9 @@ task.spawn(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [3]  NO-SPREAD
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 task.spawn(function()
     if not CFG.NoSpread then return; end;
     local mods = ReplicatedStorage:FindFirstChild("Modules");
@@ -155,9 +155,9 @@ task.spawn(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [4]  FULL-AUTO PATCH
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 task.spawn(function()
     if not CFG.FullAuto then return; end;
     local mods = ReplicatedStorage:WaitForChild("Modules", 10);
@@ -173,11 +173,11 @@ task.spawn(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  RESOLVER DATABASE
 --  Per-player state holding both the Horizon-style method learning
 --  AND our per-yaw scoring system.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
 -- Learning phases (from Horizon)
 local Phase = { Collecting = "collecting", Testing = "testing", Optimized = "optimized" };
@@ -219,7 +219,7 @@ local function NewPlayerState()
         -- Position tracking
         positionHistory  = {},  -- last 20 positions
         velocityHistory  = {},  -- last 10 velocities
-        avgVelocity      = Vector3.zero,
+        avgVelocity      = Vector3.new(0,0,0),
         isDesyncing      = false,
         desyncIntensity  = 0,
 
@@ -250,7 +250,7 @@ local function NewPlayerState()
         -- Bait tracking
         isInVoid         = false,
         posBeforeVoid    = nil,
-        velBeforeVoid    = Vector3.zero,
+        velBeforeVoid    = Vector3.new(0,0,0),
         voidEntryTime    = nil,
         timeInVoid       = 0,
         shootsFromVoid   = false,
@@ -291,9 +291,9 @@ end;
 Players.PlayerAdded:Connect(function(p) if p ~= LocalPlayer then GetDB(p); end; end);
 Players.PlayerRemoving:Connect(function(p) DB[p] = nil; end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  UTILITY
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function IsAlive(p)
     local c = p.Character;
     if not c then return false; end;
@@ -310,14 +310,14 @@ end
 
 local function GetVel(p)
     local c = p.Character;
-    if not c then return Vector3.zero; end;
+    if not c then return Vector3.new(0,0,0); end;
     local r = c:FindFirstChild("HumanoidRootPart");
-    return r and r.AssemblyLinearVelocity or Vector3.zero;
+    return r and r.AssemblyLinearVelocity or Vector3.new(0,0,0);
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  POSITION HISTORY TRACKING  (Heartbeat)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 RunService.Heartbeat:Connect(function()
     for player, rd in pairs(DB) do
         if not IsAlive(player) then continue; end;
@@ -338,7 +338,7 @@ RunService.Heartbeat:Connect(function()
         if #rd.velocityHistory > 10 then table.remove(rd.velocityHistory, 1); end;
 
         -- Average velocity
-        local vsum = Vector3.zero;
+        local vsum = Vector3.new(0,0,0);
         for _, v in rd.velocityHistory do vsum += v; end;
         rd.avgVelocity = vsum / math.max(1, #rd.velocityHistory);
 
@@ -375,9 +375,9 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [5]  STANDARD RESOLVER METHODS  (from Horizon)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function R_Velocity(c, rd)
     local root = c:FindFirstChild("HumanoidRootPart");
     if not root then return nil; end;
@@ -388,7 +388,7 @@ local function R_History(c, rd)
     local root = c:FindFirstChild("HumanoidRootPart");
     if not root then return nil; end;
     if #rd.positionHistory < 3 then return root.Position; end;
-    local sum, n = Vector3.zero, math.min(#rd.positionHistory, 5);
+    local sum, n = Vector3.new(0,0,0), math.min(#rd.positionHistory, 5);
     for i = #rd.positionHistory - n + 1, #rd.positionHistory do
         sum += rd.positionHistory[i];
     end;
@@ -422,9 +422,9 @@ local function GetStandardResolved(player, rd)
     return nil;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  STANDARD RESOLVER LEARNING  (from Horizon, adapted)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function UpdateStandardLearning(rd)
     if not CFG.AutoLearn then return; end;
     local now = tick();
@@ -482,9 +482,9 @@ local function UpdateStandardAccuracy(rd)
     rd.rMethodAcc[m] = (rd.rMethodAcc[m] * 0.8) + (base * 0.2);
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [6]  ANTI-BAIT RESOLVER METHODS  (from Horizon)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function AB_PreVoid(c, rd)
     if rd.posBeforeVoid then return rd.posBeforeVoid; end;
     local root = c:FindFirstChild("HumanoidRootPart");
@@ -544,7 +544,7 @@ local function AB_Hybrid(c, rd)
     local valid = {};
     for _, p in ipairs(candidates) do if p then table.insert(valid, p); end; end;
     if #valid == 0 then return nil; end;
-    local sum = Vector3.zero;
+    local sum = Vector3.new(0,0,0);
     for _, p in ipairs(valid) do sum += p; end;
     return sum / #valid;
 end
@@ -559,7 +559,7 @@ local function AB_AdvancedWeighted(c, rd)
         { fn = AB_RevPred,   key = ABMethod.RevPred  },
     };
     local totalWeight = 0;
-    local weightedPos = Vector3.zero;
+    local weightedPos = Vector3.new(0,0,0);
     for _, entry in ipairs(methods) do
         local pos = entry.fn(c, rd);
         if pos then
@@ -592,9 +592,9 @@ local function GetAntiBaitResolved(player, rd)
     return nil;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  ANTI-BAIT LEARNING  (from Horizon, adapted)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function DetectAdvancedConfig(rd)
     local q = 0;
     if rd.baitActivations > 5 then q += 20; end;
@@ -666,9 +666,9 @@ local function UpdateABAccuracy(rd)
     rd.abMethodAcc[m] = (rd.abMethodAcc[m] * (1 - blend)) + (base * blend);
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [7]  YAW SCORING SYSTEM  (ours)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function DecayYaw(rd)
     for y in pairs(rd.yawScores) do
         rd.yawScores[y] *= CFG.DecayRate;
@@ -706,9 +706,9 @@ local function GetYaw(player)
     return rd.lastYaw;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  HIT / MISS CALLBACKS  (wire these into UE or your shoot hook)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local function OnHit(player)
     local rd = DB[player];
     if not rd then return; end;
@@ -771,9 +771,9 @@ local function OnMiss(player)
     end;
 end
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  MAIN RESOLVER LOOP  (Heartbeat)
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 RunService.Heartbeat:Connect(function()
     for player, rd in pairs(DB) do
         if not IsAlive(player) then continue; end;
@@ -796,11 +796,11 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [8]  ADAPTIVE VOID POSITION RESOLVER  (ours)
---  Runs separately — picks the best position prediction mode
+--  Runs separately - picks the best position prediction mode
 --  per player based on which historically scores hits.
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local VoidTargets = {};
 
 local function VoidExtrapolate(rd)
@@ -821,7 +821,7 @@ local function VoidAverage(rd)
     local h = rd.positionHistory;
     if #h == 0 then return nil; end;
     local n = math.min(10, #h);
-    local sum = Vector3.zero;
+    local sum = Vector3.new(0,0,0);
     for i = #h - n + 1, #h do sum += h[i]; end;
     return sum / n;
 end
@@ -877,9 +877,9 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [9]  SELF ANTI-VOID
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 local lastSafe = nil;
 LocalPlayer.CharacterAdded:Connect(function() lastSafe = nil; end);
 
@@ -900,26 +900,26 @@ RunService.Heartbeat:Connect(function()
     end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [10] VOID SPAM  (desync + random teleport fusion)
 --
 --  HOW IT WORKS:
---    Heartbeat  → teleports HRP server-side to a random huge coord
+--    Heartbeat  > teleports HRP server-side to a random huge coord
 --                 AND randomises velocity/angular velocity
---    RenderStep → snaps everything back client-side at First priority
+--    RenderStep > snaps everything back client-side at First priority
 --                 so locally you never move
 --
 --  This means the SERVER sees you at a random position every frame
 --  while the CLIENT (you) sees yourself standing still. Classic
---  desync void — unhittable, looks normal on your end.
+--  desync void - unhittable, looks normal on your end.
 --
 --  DEVICE DETECTION:
---    Mobile  → draggable void button (lower-left area)
---    PC      → "Press G to toggle Void" hint at bottom-center
+--    Mobile  > draggable void button (lower-left area)
+--    PC      > "Press G to toggle Void" hint at bottom-center
 --              G key toggles it
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 
--- ── Config ───────────────────────────────────────────────────────
+-- -- Config -------------------------------------------------------
 local VOID_CFG = {
     Enabled      = false,
     -- How far to scatter server position (stay within int32 safe range)
@@ -929,7 +929,7 @@ local VOID_CFG = {
     DeadZoneMin  = 500000000,
 };
 
--- ── betterRandom: avoids dead zone around 0 ──────────────────────
+-- -- betterRandom: avoids dead zone around 0 ----------------------
 local function BetterRandom(mi, ma, dmi, dma)
     local val = math.random(mi, ma);
     local tries = 0;
@@ -950,7 +950,7 @@ local function RandomScatter()
     return Axis(), Axis(), Axis();
 end;
 
--- ── State ─────────────────────────────────────────────────────────
+-- -- State ---------------------------------------------------------
 local VS_hrp      = nil;
 local VS_clientCF = nil;
 local VS_clientLV = nil;
@@ -1030,11 +1030,11 @@ LocalPlayer.CharacterAdded:Connect(function()
     VS_clientAV = nil;
 end);
 
--- ── Device detection ─────────────────────────────────────────────
+-- -- Device detection ---------------------------------------------
 local IsMobile = UserInputService.TouchEnabled
               and not UserInputService.KeyboardEnabled;
 
--- ── Void UI ──────────────────────────────────────────────────────
+-- -- Void UI ------------------------------------------------------
 local VS_GUI_PARENT;
 pcall(function() if gethui then VS_GUI_PARENT = gethui(); end; end);
 if not VS_GUI_PARENT or typeof(VS_GUI_PARENT) ~= "Instance" then
@@ -1044,7 +1044,7 @@ end;
 local function RGB2(r,g,b) return Color3.fromRGB(r,g,b); end;
 
 if IsMobile then
-    -- ── MOBILE: draggable void button ────────────────────────────
+    -- -- MOBILE: draggable void button ----------------------------
     local vsGui = Instance.new("ScreenGui");
     vsGui.Name           = "UEVoidBtn";
     vsGui.ResetOnSpawn   = false;
@@ -1136,7 +1136,7 @@ if IsMobile then
     end;
 
 else
-    -- ── PC: hint label at bottom-center + G key toggle ───────────
+    -- -- PC: hint label at bottom-center + G key toggle -----------
     local vsGui = Instance.new("ScreenGui");
     vsGui.Name           = "UEVoidHint";
     vsGui.ResetOnSpawn   = false;
@@ -1151,7 +1151,7 @@ else
     hint.BackgroundColor3 = RGB2(8,8,13);
     hint.BackgroundTransparency = 0.3;
     hint.BorderSizePixel  = 0;
-    hint.Text             = "G  —  Void: OFF";
+    hint.Text             = "G  -  Void: OFF";
     hint.TextColor3       = RGB2(160,160,180);
     hint.TextSize         = 11;
     hint.Font             = Enum.Font.GothamBold;
@@ -1164,10 +1164,10 @@ else
 
     local function RefreshHint()
         if VOID_CFG.Enabled then
-            hint.Text      = "G  —  Void: ON";
+            hint.Text      = "G  -  Void: ON";
             hint.TextColor3 = RGB2(80,200,120);
         else
-            hint.Text      = "G  —  Void: OFF";
+            hint.Text      = "G  -  Void: OFF";
             hint.TextColor3 = RGB2(160,160,180);
         end;
     end;
@@ -1182,14 +1182,14 @@ else
     end);
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [11] FPS UNCAP
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if CFG.FPSUncap and setfpscap then pcall(setfpscap, 0); end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  [12] ANTI-AFK
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if CFG.AntiAFK then
     local VU = game:GetService("VirtualUser");
     LocalPlayer.Idled:Connect(function()
@@ -1198,9 +1198,9 @@ if CFG.AntiAFK then
     end);
 end;
 
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 --  GLOBAL EXPOSE
--- ─────────────────────────────────────────────────────────────────
+-- -----------------------------------------------------------------
 if getgenv then
     getgenv().UERage = {
         CFG         = CFG,
@@ -1224,383 +1224,46 @@ if getgenv then
     };
 end;
 
--- ─────────────────────────────────────────────────────────────────
---  [12] GUI
--- ─────────────────────────────────────────────────────────────────
-local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end
 
-local GUI_PARENT;
-pcall(function() if gethui then GUI_PARENT = gethui(); end; end);
-if not GUI_PARENT or typeof(GUI_PARENT) ~= "Instance" then
-    GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
-end;
+-- =============================================================
+--  DEVICE DETECTION
+-- =============================================================
+local IsMobile = UserInputService.TouchEnabled
+              and not UserInputService.KeyboardEnabled;
 
-local _old = GUI_PARENT:FindFirstChild("UERageGui");
-if _old then _old:Destroy(); end;
-
-local ScreenGui = Instance.new("ScreenGui");
-ScreenGui.Name           = "UERageGui";
-ScreenGui.ResetOnSpawn   = false;
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-ScreenGui.IgnoreGuiInset = true;
-ScreenGui.DisplayOrder   = 999;
-ScreenGui.Parent         = GUI_PARENT;
-
-local function MakeCorner(p, r)
-    local c = Instance.new("UICorner", p);
-    c.CornerRadius = UDim.new(0, r or 6);
-end
-local function MakeStroke(p, col, t)
-    local s = Instance.new("UIStroke", p);
-    s.Color = col; s.Thickness = t or 1;
-end
-local function MakeFrame(parent, props)
-    local f = Instance.new("Frame");
-    f.BackgroundTransparency = 1;
-    f.BorderSizePixel = 0;
-    f.Parent = parent;
-    for k,v in pairs(props or {}) do f[k] = v; end;
-    return f;
-end
-local function MakeLabel(parent, props)
-    local l = Instance.new("TextLabel");
-    l.BackgroundTransparency = 1;
-    l.BorderSizePixel = 0;
-    l.Parent = parent;
-    for k,v in pairs(props or {}) do l[k] = v; end;
-    return l;
-end
-local function MakeBtn(parent, props)
-    local b = Instance.new("TextButton");
-    b.BackgroundTransparency = 1;
-    b.BorderSizePixel = 0;
-    b.AutoButtonColor = false;
-    b.Text = "";
-    b.Parent = parent;
-    for k,v in pairs(props or {}) do b[k] = v; end;
-    return b;
-end
-
--- Toggle button (lower-left)
-local ToggleBtn = MakeBtn(ScreenGui, {
-    Size             = UDim2.new(0,40,0,40),
-    Position         = UDim2.new(0,12,1,-52),
-    BackgroundColor3 = RGB(10,10,15),
-    BackgroundTransparency = 0,
-    Text             = "UE",
-    TextColor3       = RGB(74,158,255),
-    TextSize         = 12,
-    Font             = Enum.Font.GothamBold,
-    ZIndex           = 200,
-});
-MakeCorner(ToggleBtn, 6);
-MakeStroke(ToggleBtn, RGB(26,42,64), 1);
-
--- Panel
-local Panel = MakeFrame(ScreenGui, {
-    Size             = UDim2.new(0,215,0,32),
-    Position         = UDim2.new(0,12,1,-98),
-    BackgroundColor3 = RGB(8,8,13),
-    BackgroundTransparency = 0,
-    ClipsDescendants = true,
-    Visible          = false,
-    ZIndex           = 199,
-});
-MakeCorner(Panel, 6);
-MakeStroke(Panel, RGB(21,32,48), 1);
-
--- Title bar
-local TitleBar = MakeFrame(Panel, {
-    Size             = UDim2.new(1,0,0,30),
-    BackgroundColor3 = RGB(13,26,42),
-    BackgroundTransparency = 0,
-    ZIndex           = 200,
-});
-MakeCorner(TitleBar, 6);
-
--- Pulse dot
-local Dot = MakeFrame(TitleBar, {
-    Size             = UDim2.new(0,6,0,6),
-    Position         = UDim2.new(0,10,0.5,-3),
-    BackgroundColor3 = RGB(0,220,120),
-    BackgroundTransparency = 0,
-    ZIndex           = 201,
-});
-MakeCorner(Dot, 10);
-task.spawn(function()
-    while ScreenGui.Parent do
-        TweenService:Create(Dot,
-            TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, true),
-            {BackgroundTransparency = 0.75}
-        ):Play();
-        task.wait(1.8);
-    end;
-end);
-
-MakeLabel(TitleBar, {
-    Size       = UDim2.new(1,0,1,0),
-    Text       = "UE RAGE",
-    TextColor3 = RGB(74,158,255),
-    TextSize   = 11,
-    Font       = Enum.Font.GothamBold,
-    ZIndex     = 201,
-});
-
--- Scroll list
-local ScrollFrame = Instance.new("ScrollingFrame");
-ScrollFrame.Size                   = UDim2.new(1,0,1,-30);
-ScrollFrame.Position               = UDim2.new(0,0,0,30);
-ScrollFrame.BackgroundTransparency = 1;
-ScrollFrame.BorderSizePixel        = 0;
-ScrollFrame.ScrollBarThickness     = 2;
-ScrollFrame.ScrollBarImageColor3   = RGB(30,58,90);
-ScrollFrame.CanvasSize             = UDim2.new(0,0,0,0);
-ScrollFrame.AutomaticCanvasSize    = Enum.AutomaticSize.Y;
-ScrollFrame.ZIndex                 = 200;
-ScrollFrame.Parent                 = Panel;
-
-local Layout = Instance.new("UIListLayout", ScrollFrame);
-Layout.Padding   = UDim.new(0,1);
-Layout.SortOrder = Enum.SortOrder.LayoutOrder;
-
-local ListPad = Instance.new("UIPadding", ScrollFrame);
-ListPad.PaddingLeft   = UDim.new(0,8);
-ListPad.PaddingRight  = UDim.new(0,8);
-ListPad.PaddingTop    = UDim.new(0,4);
-ListPad.PaddingBottom = UDim.new(0,8);
-
-local function Section(text, order)
-    local s = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,18), LayoutOrder=order, ZIndex=200});
-    MakeLabel(s, {Size=UDim2.new(1,0,1,0), Text=text, TextColor3=RGB(40,70,100),
-        TextSize=9, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-end
-
-local function Row(label, cfgKey, order)
-    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
-    MakeLabel(row, {Size=UDim2.new(1,-40,1,0), Text=label, TextColor3=RGB(138,168,200),
-        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-
-    local pill = MakeBtn(row, {
-        Size=UDim2.new(0,32,0,16), Position=UDim2.new(1,-32,0.5,-8),
-        BackgroundColor3=RGB(26,26,42), BackgroundTransparency=0, ZIndex=201});
-    MakeCorner(pill, 8);
-
-    local knob = MakeFrame(pill, {
-        Size=UDim2.new(0,11,0,11), Position=UDim2.new(0,2,0.5,-5),
-        BackgroundColor3=RGB(74,74,106), BackgroundTransparency=0, ZIndex=202});
-    MakeCorner(knob, 6);
-
-    local function Refresh()
-        local on = CFG[cfgKey];
-        pill.BackgroundColor3 = on and RGB(26,90,255) or RGB(26,26,42);
-        TweenService:Create(knob, TweenInfo.new(0.13), {
-            Position         = on and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
-            BackgroundColor3 = on and RGB(160,200,255) or RGB(74,74,106),
-        }):Play();
-    end;
-    Refresh();
-
-    pill.MouseButton1Click:Connect(function()
-        CFG[cfgKey] = not CFG[cfgKey];
-        Refresh();
-    end);
-end
-
-local function DropRow(label, cfgKey, options, order)
-    local row = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,28), LayoutOrder=order, ZIndex=200});
-    MakeLabel(row, {Size=UDim2.new(1,-82,1,0), Text=label, TextColor3=RGB(138,168,200),
-        TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201});
-
-    local btn = MakeBtn(row, {
-        Size=UDim2.new(0,76,0,18), Position=UDim2.new(1,-76,0.5,-9),
-        BackgroundColor3=RGB(13,26,42), BackgroundTransparency=0,
-        TextColor3=RGB(74,158,255), TextSize=9, Font=Enum.Font.GothamBold,
-        Text=tostring(CFG[cfgKey]), ZIndex=201});
-    MakeCorner(btn, 3);
-
-    local idx = 1;
-    for i,v in ipairs(options) do if tostring(v) == tostring(CFG[cfgKey]) then idx=i; break; end; end;
-
-    btn.MouseButton1Click:Connect(function()
-        idx = (idx % #options) + 1;
-        CFG[cfgKey] = options[idx];
-        btn.Text = tostring(options[idx]);
-    end);
-end
-
--- Build rows
-Section("EXPLOIT",      0);
-Row("Reload Exploit",     "ReloadExploit",   1);
-Row("Reload Loop",        "ReloadLoop",       2);
-Row("No Spread",          "NoSpread",         3);
-Row("Full Auto",          "FullAuto",         4);
-Section("RESOLVER",    10);
-Row("Standard Resolver",  "Resolver",         11);
-Row("Auto-Learn",         "AutoLearn",        12);
-Row("Anti-Bait",          "AntiBait",         13);
-Row("Advanced Mode",      "AdvancedMode",     14);
-Row("Yaw Scoring",        "YawScoring",       15);
-Section("VOID RES",    20);
-Row("Anti-Void Resolve",  "AntiVoidResolve",  21);
-DropRow("Mode",           "VoidResolveMode",  {"Adaptive","Extrapolate","Average","Last"}, 22);
-Section("PROTECTION",  30);
-Row("Self Anti-Void",     "SelfAntiVoid",     31);
-Row("Anti-AFK",           "AntiAFK",          32);
-Row("FPS Uncap",          "FPSUncap",         33);
--- Void spam note (device-specific UI lives outside panel)
-do
-    local note = MakeFrame(ScrollFrame, {Size=UDim2.new(1,0,0,20), LayoutOrder=34, ZIndex=200});
-    MakeLabel(note, {
-        Size=UDim2.new(1,0,1,0),
-        Text = IsMobile and "Void: tap button near toggle"
-                        or "Void: press G key",
-        TextColor3=RGB(60,90,60), TextSize=9,
-        Font=Enum.Font.Gotham,
-        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=201,
-    });
-end;
-
--- Auto-resize
-local function ResizePanel()
-    local h   = Layout.AbsoluteContentSize.Y + 30 + 12;
-    local cap = math.min(h, 360);
-    local px  = Panel.Position.X.Offset;
-    Panel.Size     = UDim2.new(0,215,0,cap);
-    Panel.Position = UDim2.new(0,px,1,-(cap+52));
-end;
-Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ResizePanel);
-task.defer(ResizePanel);
-
--- Open/close
-local PanelOpen = false;
-local function TogglePanel()
-    PanelOpen = not PanelOpen;
-    Panel.Visible = PanelOpen;
-    ToggleBtn.BackgroundColor3 = PanelOpen and RGB(13,26,42) or RGB(10,10,15);
-end;
-ToggleBtn.MouseButton1Click:Connect(TogglePanel);
-
--- Drag
-do
-    local dragging = false;
-    local dragStart = Vector2.zero;
-    local startPX, startPY = 0, 0;
-
-    TitleBar.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging  = true;
-            dragStart = Vector2.new(inp.Position.X, inp.Position.Y);
-            startPX   = Panel.Position.X.Offset;
-            startPY   = Panel.Position.Y.Offset;
-        end;
-    end);
-
-    TitleBar.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1
-        or inp.UserInputType == Enum.UserInputType.Touch then
-            dragging = false;
-        end;
-    end);
-
-    UserInputService.InputChanged:Connect(function(inp)
-        if not dragging then return; end;
-        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
-        and inp.UserInputType ~= Enum.UserInputType.Touch then return; end;
-        local dx = inp.Position.X - dragStart.X;
-        local dy = inp.Position.Y - dragStart.Y;
-        Panel.Position     = UDim2.new(0, startPX+dx, 1, startPY+dy);
-        ToggleBtn.Position = UDim2.new(0, startPX+dx, 1, startPY+dy+Panel.AbsoluteSize.Y+6);
-    end);
-end;
-
--- ─────────────────────────────────────────────────────────────────
---  SLINGSHOT OPTIMIZATIONS
---
---  Slingshot-specific tuning applied on top of the base resolver:
---
---  1. Prediction time tuned to slingshot projectile speed (~180 su/s)
---     At 200ms ping: flight_time = dist/180 + 0.200 latency
---     We cache this per-enemy and update it each frame based on
---     their current distance to LocalPlayer.
---
---  2. Firerate patch: slingshot has an inherent delay between shots.
---     We zero FireRate and ReloadLength aggressively.
---
---  3. Resolver bias: slingshot shots are slow projectiles so
---     Velocity method is almost always better than History.
---     We boost Velocity method score by default for all enemies
---     when slingshot is held.
---
---  4. Spread is already zeroed by NoSpread, but we also hook
---     the projectile module specifically for slingshot to ensure
---     the actual projectile launch direction is never randomized.
--- ─────────────────────────────────────────────────────────────────
-
-local SLING_SPEED   = 180;  -- studs/sec (slingshot projectile)
-local SLING_GRAVITY = 196.2; -- Roblox gravity (workspace.Gravity default)
-
--- Cache workspace gravity in case server changed it
-pcall(function() SLING_GRAVITY = workspace.Gravity; end);
-
--- Track whether local player is holding slingshot
+-- =============================================================
+--  SLINGSHOT OPTIMIZATION
+-- =============================================================
+local SLING_SPEED   = 180;
+local PING_ESTIMATE = 0.200;
 local HoldingSlingshot = false;
+local SlingshotOP      = false;
 
 local function CheckWeapon()
-    local char = GetChar();
-    if not char then HoldingSlingshot = false; return; end;
-    local tool = char:FindFirstChildOfClass("Tool");
-    HoldingSlingshot = tool and tool.Name:lower():find("slingshot") ~= nil or false;
+    local c = GetChar();
+    if not c then HoldingSlingshot = false; return; end;
+    local t = c:FindFirstChildOfClass("Tool");
+    HoldingSlingshot = t and t.Name:lower():find("slingshot") ~= nil or false;
 end;
-
 RunService.Heartbeat:Connect(CheckWeapon);
 
--- Per-enemy slingshot prediction (accounts for distance + ping + gravity drop)
-local PING_ESTIMATE = 0.200; -- 200ms baseline for Singapore servers
--- Try to read actual ping from Stats
-pcall(function()
-    local stats = game:GetService("Stats");
-    local net   = stats:FindFirstChild("Network");
-    local ping  = net and net:FindFirstChild("ServerStatsItem") -- varies by executor
-    -- Fallback: keep 0.200
-end);
-
-local function GetSlingshotPred(player)
-    if not HoldingSlingshot then return nil; end;
-    local myRoot = GetRoot();
-    local thRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart");
-    if not myRoot or not thRoot then return nil; end;
-
-    local dist     = (myRoot.Position - thRoot.Position).Magnitude;
-    local tof      = dist / SLING_SPEED;           -- time of flight
-    local totalLag = tof + PING_ESTIMATE;           -- total lag to account for
-
-    -- Gravity drop Y component: 0.5 * g * tof^2 (we aim higher to compensate)
-    local gravDrop = 0.5 * SLING_GRAVITY * (tof * tof);
-
-    return totalLag, gravDrop;
-end;
-
--- Override rOptimalPred per-enemy every frame when holding slingshot
 RunService.Heartbeat:Connect(function()
     if not HoldingSlingshot then return; end;
+    local myRoot = GetRoot();
+    if not myRoot then return; end;
     for player, rd in pairs(DB) do
         if not IsAlive(player) then continue; end;
-        local pred, drop = GetSlingshotPred(player);
-        if pred then
-            rd.rOptimalPred = pred;
-            rd.gravDrop     = drop or 0;
-            -- Bias resolver toward Velocity when we're holding slingshot
-            -- (slow projectile = velocity prediction is almost always best)
-            if rd.rMethodAcc[RMethod.Velocity] then
-                rd.rMethodAcc[RMethod.Velocity] = math.min(100,
-                    rd.rMethodAcc[RMethod.Velocity] + 0.5);
-            end;
+        local their = player.Character and player.Character:FindFirstChild("HumanoidRootPart");
+        if not their then continue; end;
+        local dist = (myRoot.Position - their.Position).Magnitude;
+        local tof  = dist / SLING_SPEED;
+        rd.rOptimalPred = tof + PING_ESTIMATE;
+        if rd.rMethodAcc["velocity"] then
+            rd.rMethodAcc["velocity"] = math.min(100, rd.rMethodAcc["velocity"] + 0.5);
         end;
     end;
 end);
 
--- Slingshot-specific item patch (aggressive, re-applies every 5s)
 task.spawn(function()
     local mods = ReplicatedStorage:WaitForChild("Modules", 10);
     if not mods then return; end;
@@ -1609,544 +1272,694 @@ task.spawn(function()
     local Items = rawget(IL, "Items");
     if not Items then return; end;
 
-    local function PatchSlingshot()
-        for _, Item in Items do
-            if Item.Name:lower():find("slingshot") then
-                -- Zero every timing-related field
-                for _, field in {
-                    "ReloadLength", "FireRate", "Spread",
-                    "Bloom", "Recoil", "RecoveryTime",
-                    "ChargeTime", "WindupTime",
-                } do
-                    if rawget(Item, field) ~= nil then
-                        rawset(Item, field, 0);
-                    end;
+    local function PatchSling()
+        for _, Item in pairs(Items) do
+            if not Item.Name:lower():find("slingshot") then continue; end;
+            for _, field in ipairs({
+                "ReloadLength","FireRate","Spread","Bloom","Recoil",
+                "RecoveryTime","ChargeTime","WindupTime","EquipTime",
+            }) do
+                if rawget(Item, field) ~= nil then rawset(Item, field, 0); end;
+            end;
+            if rawget(Item, "ProjectileSpeed") then
+                rawset(Item, "ProjectileSpeed", SlingshotOP and 99999 or 9999);
+            end;
+            if SlingshotOP then
+                for _, field in ipairs({"Damage","HeadshotMultiplier","MinDamage"}) do
+                    if rawget(Item, field) ~= nil then rawset(Item, field, 9999); end;
                 end;
-                -- Max projectile speed
-                if rawget(Item, "ProjectileSpeed") then
-                    rawset(Item, "ProjectileSpeed", 9999);
+                for _, field in ipairs({"MaxDistance","Range"}) do
+                    if rawget(Item, field) ~= nil then rawset(Item, field, 99999); end;
                 end;
+                if rawget(Item, "FireMode") then rawset(Item, "FireMode", "auto"); end;
             end;
         end;
     end;
 
-    PatchSlingshot();
-    while task.wait(5) do PatchSlingshot(); end;
+    PatchSling();
+    while task.wait(3) do PatchSling(); end;
 end);
 
--- ─────────────────────────────────────────────────────────────────
---  LOW DETAIL MODE
---
---  Strips as much visual noise as possible to squeeze FPS on
---  mobile / low-end devices. Off by default.
---  Affects: textures, meshes, particles, decals, post-processing,
---           shadows, terrain quality, water rendering, sounds.
--- ─────────────────────────────────────────────────────────────────
-
+-- =============================================================
+--  LOW DETAIL MODE (nuclear)
+-- =============================================================
 local LowDetailActive = false;
-local LowDetailBackup = {}; -- store originals for restore
+local LDBackup = {};
 
 local function ApplyLowDetail()
     if LowDetailActive then return; end;
     LowDetailActive = true;
-
-    -- Lighting
     pcall(function()
         local L = game:GetService("Lighting");
-        LowDetailBackup.GlobalShadows        = L.GlobalShadows;
-        LowDetailBackup.Brightness           = L.Brightness;
-        LowDetailBackup.FogEnd               = L.FogEnd;
-        LowDetailBackup.EnvironmentDiffuseScale = L.EnvironmentDiffuseScale;
-        LowDetailBackup.EnvironmentSpecularScale = L.EnvironmentSpecularScale;
-        L.GlobalShadows           = false;
-        L.Brightness              = 2;
-        L.FogEnd                  = 100000;
-        L.EnvironmentDiffuseScale = 0;
-        L.EnvironmentSpecularScale = 0;
-
-        -- Kill all post-processing effects
-        for _, fx in L:GetChildren() do
-            if fx:IsA("PostEffect") then
-                LowDetailBackup["fx_" .. fx.Name .. "_enabled"] = fx.Enabled;
-                fx.Enabled = false;
+        LDBackup.GlobalShadows = L.GlobalShadows;
+        LDBackup.Brightness    = L.Brightness;
+        LDBackup.ClockTime     = L.ClockTime;
+        L.GlobalShadows = false;
+        L.Brightness    = 3;
+        L.ClockTime     = 14;
+        for _, child in ipairs(L:GetChildren()) do
+            if child:IsA("PostEffect") or child:IsA("Sky") or child:IsA("Atmosphere") then
+                LDBackup["lc_"..child.Name] = {inst=child, parent=child.Parent};
+                child.Parent = nil;
             end;
         end;
-
-        -- Kill atmosphere
-        local atmo = L:FindFirstChildOfClass("Atmosphere");
-        if atmo then
-            LowDetailBackup.AtmoDensity = atmo.Density;
-            atmo.Density = 0;
-        end;
     end);
-
-    -- Terrain
     pcall(function()
         local T = workspace:FindFirstChildOfClass("Terrain");
         if not T then return; end;
-        LowDetailBackup.WaterWaveSize   = T.WaterWaveSize;
-        LowDetailBackup.WaterWaveSpeed  = T.WaterWaveSpeed;
-        LowDetailBackup.WaterReflectance = T.WaterReflectance;
-        LowDetailBackup.WaterTransparency = T.WaterTransparency;
-        T.WaterWaveSize    = 0;
-        T.WaterWaveSpeed   = 0;
-        T.WaterReflectance = 0;
+        LDBackup.WaterWave    = T.WaterWaveSize;
+        LDBackup.WaterSpeed   = T.WaterWaveSpeed;
+        LDBackup.WaterReflect = T.WaterReflectance;
+        LDBackup.WaterTrans   = T.WaterTransparency;
+        LDBackup.Decoration   = T.Decoration;
+        T.WaterWaveSize     = 0;
+        T.WaterWaveSpeed    = 0;
+        T.WaterReflectance  = 0;
         T.WaterTransparency = 1;
+        T.Decoration        = false;
     end);
-
-    -- Workspace render settings
     pcall(function()
-        LowDetailBackup.StreamingEnabled = workspace.StreamingEnabled;
-        -- Can't set StreamingEnabled at runtime, but we can reduce quality
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01;
     end);
-
-    -- Strip particles, decals, textures, sounds from workspace
-    local function StripDescendant(obj)
-        if obj:IsA("ParticleEmitter")
-        or obj:IsA("Trail")
-        or obj:IsA("Smoke")
-        or obj:IsA("Fire")
-        or obj:IsA("Sparkles") then
-            obj.Enabled = false;
-        elseif obj:IsA("Decal") or obj:IsA("Texture") then
-            obj.Transparency = 1;
-        elseif obj:IsA("SpecialMesh") then
-            -- Keep mesh for hitbox accuracy, just blank texture
-            obj.TextureId = "";
-        elseif obj:IsA("Sound") and not obj.Parent:IsA("Humanoid") then
-            -- Mute non-character sounds (keep footsteps for awareness)
-            obj.Volume = 0;
-        end;
+    local function Nuke(obj)
+        pcall(function()
+            local t = obj.ClassName;
+            if t == "ParticleEmitter" or t == "Trail" or t == "Smoke"
+            or t == "Fire" or t == "Sparkles" or t == "SurfaceAppearance"
+            or t == "BillboardGui" or t == "SurfaceGui" then
+                obj.Parent = nil;
+            elseif t == "Decal" or t == "Texture" then
+                obj.Transparency = 1;
+            elseif t == "SpecialMesh" or t == "FileMesh" then
+                obj.TextureId = "";
+            elseif t == "Sound" then
+                obj.Volume = 0;
+            elseif obj:IsA("BasePart") then
+                obj.Material    = Enum.Material.SmoothPlastic;
+                obj.Reflectance = 0;
+                obj.CastShadow  = false;
+            end;
+        end);
     end;
-
-    for _, obj in workspace:GetDescendants() do
-        pcall(StripDescendant, obj);
-    end;
-
-    -- Also strip on new descendants
+    for _, obj in ipairs(workspace:GetDescendants()) do Nuke(obj); end;
     workspace.DescendantAdded:Connect(function(obj)
-        if LowDetailActive then pcall(StripDescendant, obj); end;
+        if LowDetailActive then task.defer(Nuke, obj); end;
     end);
 end;
 
 local function RemoveLowDetail()
     if not LowDetailActive then return; end;
     LowDetailActive = false;
-
     pcall(function()
         local L = game:GetService("Lighting");
-        if LowDetailBackup.GlobalShadows ~= nil then
-            L.GlobalShadows = LowDetailBackup.GlobalShadows;
-        end;
-        if LowDetailBackup.Brightness then L.Brightness = LowDetailBackup.Brightness; end;
-        if LowDetailBackup.FogEnd     then L.FogEnd     = LowDetailBackup.FogEnd;     end;
-        if LowDetailBackup.EnvironmentDiffuseScale then
-            L.EnvironmentDiffuseScale  = LowDetailBackup.EnvironmentDiffuseScale;
-            L.EnvironmentSpecularScale = LowDetailBackup.EnvironmentSpecularScale;
-        end;
-        for _, fx in L:GetChildren() do
-            if fx:IsA("PostEffect") then
-                local key = "fx_" .. fx.Name .. "_enabled";
-                if LowDetailBackup[key] ~= nil then fx.Enabled = LowDetailBackup[key]; end;
+        if LDBackup.GlobalShadows ~= nil then L.GlobalShadows = LDBackup.GlobalShadows; end;
+        if LDBackup.Brightness    then L.Brightness = LDBackup.Brightness; end;
+        if LDBackup.ClockTime     then L.ClockTime  = LDBackup.ClockTime;  end;
+        for k, v in pairs(LDBackup) do
+            if k:sub(1,3) == "lc_" and type(v) == "table" and v.inst then
+                v.inst.Parent = v.parent;
             end;
         end;
-        local atmo = L:FindFirstChildOfClass("Atmosphere");
-        if atmo and LowDetailBackup.AtmoDensity then
-            atmo.Density = LowDetailBackup.AtmoDensity;
-        end;
     end);
-
     pcall(function()
         local T = workspace:FindFirstChildOfClass("Terrain");
         if not T then return; end;
-        if LowDetailBackup.WaterWaveSize  then T.WaterWaveSize   = LowDetailBackup.WaterWaveSize;  end;
-        if LowDetailBackup.WaterWaveSpeed then T.WaterWaveSpeed  = LowDetailBackup.WaterWaveSpeed; end;
-        if LowDetailBackup.WaterReflectance then T.WaterReflectance = LowDetailBackup.WaterReflectance; end;
-        if LowDetailBackup.WaterTransparency then T.WaterTransparency = LowDetailBackup.WaterTransparency; end;
+        if LDBackup.WaterWave    then T.WaterWaveSize    = LDBackup.WaterWave;    end;
+        if LDBackup.WaterSpeed   then T.WaterWaveSpeed   = LDBackup.WaterSpeed;   end;
+        if LDBackup.WaterReflect then T.WaterReflectance = LDBackup.WaterReflect; end;
+        if LDBackup.WaterTrans   then T.WaterTransparency= LDBackup.WaterTrans;   end;
+        if LDBackup.Decoration ~= nil then T.Decoration  = LDBackup.Decoration;   end;
     end);
-
-    -- Note: particles/decals/sounds can't easily be restored without
-    -- full table backup; rejoin or disable/enable recommended.
-    print("[UE] Low Detail OFF — rejoin recommended to restore particles/decals");
 end;
 
--- ─────────────────────────────────────────────────────────────────
---  TRACKER HUD
---  Bottom-right black box, rounded corners.
---  Shows: Kills / Deaths / KD / Hit Rate / Resolver Phase /
---         Void Status / FPS / Slingshot Mode
--- ─────────────────────────────────────────────────────────────────
+-- =============================================================
+--  VOID SPAM (desync method)
+-- =============================================================
+local VOID_CFG = {Enabled = false};
+local VS_hrp = nil; local VS_cf = nil; local VS_lv = nil; local VS_av = nil;
+local VS_hb  = nil; local VS_rs = nil;
 
-local TRACKER = {
-    Kills     = 0,
-    Deaths    = 0,
-    Hits      = 0,
-    Shots     = 0,
-    StartTime = tick(),
-};
-
--- Auto-detect kills and deaths via humanoid health monitoring
-local function HookCharacter(char)
-    if not char then return; end;
-    local hum = char:WaitForChild("Humanoid", 5);
-    if not hum then return; end;
-
-    hum.Died:Connect(function()
-        TRACKER.Deaths += 1;
-    end);
-
-    -- Track enemies dying (kills) — detect when an enemy humanoid dies
-    -- while we're alive (rough approximation)
+local function BRand(mi, ma, dmi, dma)
+    local v = math.random(mi, ma); local t = 0;
+    repeat v = math.random(mi, ma); t = t + 1; until v < dmi or v > dma or t > 20;
+    return v;
 end;
 
-HookCharacter(GetChar());
-LocalPlayer.CharacterAdded:Connect(HookCharacter);
-
--- Watch all enemy humanoids for deaths = potential kills
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function(char)
-        local hum = char:WaitForChild("Humanoid", 5);
-        if not hum then return; end;
-        hum.Died:Connect(function()
-            -- Only count as kill if local player is alive
-            local myHum = GetHuman();
-            if myHum and myHum.Health > 0 then
-                TRACKER.Kills += 1;
-            end;
+local function VS_Start()
+    if VS_hb then return; end;
+    VS_hb = RunService.Heartbeat:Connect(function()
+        if not VOID_CFG.Enabled then return; end;
+        pcall(function()
+            VS_hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");
+            if not VS_hrp then return; end;
+            VS_cf = VS_hrp.CFrame;
+            VS_lv = VS_hrp.AssemblyLinearVelocity;
+            VS_av = VS_hrp.AssemblyAngularVelocity;
+            local function A() return BRand(9999,2000000000,500000000,2000000000)*(math.random(0,1)==0 and -1 or 1); end;
+            VS_hrp.CFrame = CFrame.new(A(),A(),A()) * CFrame.Angles(math.rad(math.pi),math.rad(math.pi),math.rad(math.pi));
+            VS_hrp.AssemblyLinearVelocity  = Vector3.new(A(),A(),A());
+            VS_hrp.AssemblyAngularVelocity = Vector3.new(A(),A(),A());
         end);
     end);
-end);
-
--- Hook existing players
-for _, p in Players:GetPlayers() do
-    if p ~= LocalPlayer and p.Character then
-        local hum = p.Character:FindFirstChildOfClass("Humanoid");
-        if hum then
-            hum.Died:Connect(function()
-                local myHum = GetHuman();
-                if myHum and myHum.Health > 0 then
-                    TRACKER.Kills += 1;
-                end;
+    VS_rs = RunService:BindToRenderStep("UEVoidSync", Enum.RenderPriority.First.Value, function()
+        if not VOID_CFG.Enabled then return; end;
+        if VS_hrp and VS_cf then
+            pcall(function()
+                VS_hrp.CFrame                  = VS_cf;
+                VS_hrp.AssemblyLinearVelocity  = VS_lv;
+                VS_hrp.AssemblyAngularVelocity = VS_av;
             end);
         end;
-        p.CharacterAdded:Connect(function(char)
-            local hum2 = char:WaitForChild("Humanoid", 5);
-            if not hum2 then return; end;
-            hum2.Died:Connect(function()
-                local myHum = GetHuman();
-                if myHum and myHum.Health > 0 then TRACKER.Kills += 1; end;
+    end);
+end;
+
+local function VS_Stop()
+    if VS_hb then VS_hb:Disconnect(); VS_hb = nil; end;
+    pcall(function() RunService:UnbindFromRenderStep("UEVoidSync"); end);
+    VS_hrp = nil;
+end;
+
+local function VS_Toggle()
+    VOID_CFG.Enabled = not VOID_CFG.Enabled;
+    if VOID_CFG.Enabled then VS_Start(); else VS_Stop(); end;
+    return VOID_CFG.Enabled;
+end;
+
+LocalPlayer.CharacterAdded:Connect(function()
+    VS_hrp = nil; VS_cf = nil; VS_lv = nil; VS_av = nil;
+end);
+
+-- =============================================================
+--  TRACKER DATA
+-- =============================================================
+local TRACKER = {Kills=0, Deaths=0, Hits=0, Shots=0, StartTime=tick()};
+
+local function HookChar(char)
+    if not char then return; end;
+    local hum = char:FindFirstChildOfClass("Humanoid");
+    if not hum then return; end;
+    hum.Died:Connect(function() TRACKER.Deaths = TRACKER.Deaths + 1; end);
+end;
+HookChar(GetChar());
+LocalPlayer.CharacterAdded:Connect(HookChar);
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer and p.Character then
+        local h = p.Character:FindFirstChildOfClass("Humanoid");
+        if h then
+            h.Died:Connect(function()
+                local myH = GetHuman();
+                if myH and myH.Health > 0 then TRACKER.Kills = TRACKER.Kills + 1; end;
+            end);
+        end;
+        p.CharacterAdded:Connect(function(c)
+            local h2 = c:WaitForChild("Humanoid", 5);
+            if not h2 then return; end;
+            h2.Died:Connect(function()
+                local myH = GetHuman();
+                if myH and myH.Health > 0 then TRACKER.Kills = TRACKER.Kills + 1; end;
             end);
         end);
     end;
 end;
 
--- Build tracker UI
-local TR_PARENT;
-pcall(function() if gethui then TR_PARENT = gethui(); end; end);
-if not TR_PARENT or typeof(TR_PARENT) ~= "Instance" then
-    TR_PARENT = LocalPlayer:WaitForChild("PlayerGui");
-end;
+Players.PlayerAdded:Connect(function(p)
+    if p == LocalPlayer then return; end;
+    p.CharacterAdded:Connect(function(c)
+        local h = c:WaitForChild("Humanoid", 5);
+        if not h then return; end;
+        h.Died:Connect(function()
+            local myH = GetHuman();
+            if myH and myH.Health > 0 then TRACKER.Kills = TRACKER.Kills + 1; end;
+        end);
+    end);
+end);
 
-local trGui = Instance.new("ScreenGui");
-trGui.Name           = "UETrackerGui";
-trGui.ResetOnSpawn   = false;
-trGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-trGui.IgnoreGuiInset = true;
-trGui.DisplayOrder   = 997;
-trGui.Parent         = TR_PARENT;
+-- =============================================================
+--  GUI  v7
+-- =============================================================
+local function RGB(r,g,b) return Color3.fromRGB(r,g,b); end;
 
--- Outer box
-local trBox = Instance.new("Frame");
-trBox.Size             = UDim2.new(0, 160, 0, 10); -- height auto-grows
-trBox.Position         = UDim2.new(1, -168, 1, -12); -- bottom-right
-trBox.BackgroundColor3 = Color3.fromRGB(6, 6, 10);
-trBox.BackgroundTransparency = 0;
-trBox.BorderSizePixel  = 0;
-trBox.AutomaticSize    = Enum.AutomaticSize.Y;
-trBox.ZIndex           = 400;
-trBox.Parent           = trGui;
-do
-    local c = Instance.new("UICorner", trBox);
-    c.CornerRadius = UDim.new(0, 7);
-end;
-do
-    local s = Instance.new("UIStroke", trBox);
-    s.Color = Color3.fromRGB(18, 28, 42);
-    s.Thickness = 1;
-end;
-
-local trLayout = Instance.new("UIListLayout", trBox);
-trLayout.Padding   = UDim.new(0, 0);
-trLayout.SortOrder = Enum.SortOrder.LayoutOrder;
-
-local trPad = Instance.new("UIPadding", trBox);
-trPad.PaddingLeft   = UDim.new(0, 8);
-trPad.PaddingRight  = UDim.new(0, 8);
-trPad.PaddingTop    = UDim.new(0, 6);
-trPad.PaddingBottom = UDim.new(0, 6);
-
--- Header
-local trHeader = Instance.new("TextLabel");
-trHeader.Size                  = UDim2.new(1, 0, 0, 16);
-trHeader.BackgroundTransparency = 1;
-trHeader.BorderSizePixel       = 0;
-trHeader.Text                  = "UE TRACKER";
-trHeader.TextColor3            = Color3.fromRGB(74, 158, 255);
-trHeader.TextSize              = 10;
-trHeader.Font                  = Enum.Font.GothamBold;
-trHeader.TextXAlignment        = Enum.TextXAlignment.Left;
-trHeader.LayoutOrder           = 0;
-trHeader.ZIndex                = 401;
-trHeader.Parent                = trBox;
-
--- Divider
-local trDiv = Instance.new("Frame");
-trDiv.Size             = UDim2.new(1, 0, 0, 1);
-trDiv.BackgroundColor3 = Color3.fromRGB(18, 28, 42);
-trDiv.BackgroundTransparency = 0;
-trDiv.BorderSizePixel  = 0;
-trDiv.LayoutOrder      = 1;
-trDiv.ZIndex           = 401;
-trDiv.Parent           = trBox;
-
--- Row factory
-local trRows = {};
-local rowOrder = 2;
-local function TRRow(key, defaultText)
-    local lbl = Instance.new("TextLabel");
-    lbl.Size                  = UDim2.new(1, 0, 0, 14);
-    lbl.BackgroundTransparency = 1;
-    lbl.BorderSizePixel       = 0;
-    lbl.Text                  = defaultText;
-    lbl.TextColor3            = Color3.fromRGB(160, 175, 195);
-    lbl.TextSize              = 9;
-    lbl.Font                  = Enum.Font.Gotham;
-    lbl.TextXAlignment        = Enum.TextXAlignment.Left;
-    lbl.LayoutOrder           = rowOrder;
-    lbl.ZIndex                = 401;
-    lbl.Parent                = trBox;
-    rowOrder += 1;
-    trRows[key] = lbl;
-    return lbl;
-end;
-
-TRRow("kills",    "Kills       0");
-TRRow("deaths",   "Deaths      0");
-TRRow("kd",       "K/D         0.00");
-TRRow("hitrate",  "Hit Rate    0%");
-TRRow("shots",    "Shots       0");
-TRRow("resolver", "Resolver    collecting");
-TRRow("void",     "Void        OFF");
-TRRow("sling",    "Slingshot   OFF");
-TRRow("ld",       "Low Detail  OFF");
-TRRow("fps",      "FPS         --");
-TRRow("uptime",   "Uptime      0s");
-
--- Low detail toggle row (in tracker, acts as button too)
-trRows["ld"].TextColor3 = Color3.fromRGB(100, 100, 120);
-
--- FPS counter
-local FPS_count = 0;
-local FPS_last  = tick();
-local FPS_value = 0;
-
-RunService.Heartbeat:Connect(function()
-    FPS_count += 1;
-    local now = tick();
-    if now - FPS_last >= 0.5 then
-        FPS_value = math.floor(FPS_count / (now - FPS_last));
-        FPS_count = 0;
-        FPS_last  = now;
+local GUI_PARENT = LocalPlayer:WaitForChild("PlayerGui");
+pcall(function()
+    if gethui then
+        local h = gethui();
+        if h and typeof(h) == "Instance" then GUI_PARENT = h; end;
     end;
 end);
 
--- Tracker update loop (10hz is plenty for display)
-local function FormatRow(label, value)
-    local pad = string.rep(" ", math.max(1, 12 - #label));
-    return label .. pad .. tostring(value);
+-- Destroy old
+for _, name in ipairs({"UERageGui","UEVoidBtn","UEVoidHint","UETrackerGui"}) do
+    local old = GUI_PARENT:FindFirstChild(name);
+    if old then old:Destroy(); end;
 end;
 
-local function GetResolverPhase()
-    -- Find the most common phase across all tracked players
-    local phases = { collecting = 0, testing = 0, optimized = 0 };
-    local best_conf = 0;
-    for _, rd in pairs(DB) do
-        phases[rd.rPhase] = (phases[rd.rPhase] or 0) + 1;
-        if rd.rConfidence > best_conf then best_conf = rd.rConfidence; end;
+local SG = Instance.new("ScreenGui");
+SG.Name           = "UERageGui";
+SG.ResetOnSpawn   = false;
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+SG.IgnoreGuiInset = true;
+SG.DisplayOrder   = 999;
+SG.Parent         = GUI_PARENT;
+
+-- Helpers
+local function Rnd(i,r) local c=Instance.new("UICorner",i); c.CornerRadius=UDim.new(0,r or 6); end;
+local function Bdr(i,c,t) local s=Instance.new("UIStroke",i); s.Color=c or RGB(20,32,50); s.Thickness=t or 1; end;
+
+local function MkFrame(parent,bg,sz,pos,zi,clip)
+    local f=Instance.new("Frame");
+    f.BackgroundColor3=bg or RGB(8,9,15); f.BorderSizePixel=0;
+    f.Size=sz or UDim2.new(0,100,0,30); f.Position=pos or UDim2.new(0,0,0,0);
+    f.ZIndex=zi or 1; if clip then f.ClipsDescendants=true; end;
+    f.Parent=parent; return f;
+end;
+
+local function MkLabel(parent,txt,tsz,col,sz,pos,zi,font,xa)
+    local l=Instance.new("TextLabel");
+    l.BackgroundTransparency=1; l.BorderSizePixel=0;
+    l.Text=txt or ""; l.TextSize=tsz or 10;
+    l.Font=font or Enum.Font.Gotham;
+    l.TextColor3=col or RGB(160,175,200);
+    l.TextXAlignment=xa or Enum.TextXAlignment.Left;
+    l.Size=sz or UDim2.new(1,0,1,0);
+    l.Position=pos or UDim2.new(0,0,0,0);
+    l.ZIndex=zi or 1; l.Parent=parent; return l;
+end;
+
+local function MkBtn(parent,sz,pos,zi)
+    local b=Instance.new("TextButton");
+    b.BackgroundTransparency=1; b.BorderSizePixel=0;
+    b.AutoButtonColor=false; b.Text="";
+    b.Size=sz or UDim2.new(0,40,0,20);
+    b.Position=pos or UDim2.new(0,0,0,0);
+    b.ZIndex=zi or 1; b.Parent=parent; return b;
+end;
+
+-- Toggle button (lower-left)
+local TBtn = MkBtn(SG, UDim2.new(0,42,0,22), UDim2.new(0,10,1,-32), 200);
+TBtn.BackgroundColor3     = RGB(8,10,18);
+TBtn.BackgroundTransparency = 0;
+TBtn.Text                 = "UE";
+TBtn.TextColor3           = RGB(70,148,255);
+TBtn.TextSize             = 11;
+TBtn.Font                 = Enum.Font.GothamBold;
+Rnd(TBtn,5); Bdr(TBtn,RGB(20,35,60),1);
+
+-- Panel
+local Panel = MkFrame(SG, RGB(8,9,15), UDim2.new(0,196,0,30), UDim2.new(0,10,1,-58), 190, true);
+Rnd(Panel,7); Bdr(Panel,RGB(18,30,48),1);
+Panel.Visible = false;
+
+-- Title bar
+local TBar = MkFrame(Panel, RGB(10,14,24), UDim2.new(1,0,0,25), UDim2.new(0,0,0,0), 191);
+Rnd(TBar,7);
+
+local PDot = MkFrame(TBar, RGB(45,205,95), UDim2.new(0,5,0,5), UDim2.new(0,8,0.5,-2), 193);
+Rnd(PDot,10);
+task.spawn(function()
+    while SG.Parent do
+        TweenService:Create(PDot, TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut,0,true),
+            {BackgroundTransparency=0.75}):Play();
+        task.wait(2);
     end;
-    if phases.optimized > 0 then
-        return "optimized " .. best_conf .. "%";
-    elseif phases.testing > 0 then
-        return "testing";
-    else
-        return "collecting";
+end);
+
+MkLabel(TBar,"UE RAGE",10,RGB(70,148,255),
+    UDim2.new(1,0,1,0),UDim2.new(0,0,0,0),192,Enum.Font.GothamBold,Enum.TextXAlignment.Center);
+
+-- Scroll
+local Scroll = Instance.new("ScrollingFrame");
+Scroll.Size=UDim2.new(1,0,1,-25); Scroll.Position=UDim2.new(0,0,0,25);
+Scroll.BackgroundTransparency=1; Scroll.BorderSizePixel=0;
+Scroll.ScrollBarThickness=2; Scroll.ScrollBarImageColor3=RGB(32,55,95);
+Scroll.CanvasSize=UDim2.new(0,0,0,0); Scroll.AutomaticCanvasSize=Enum.AutomaticSize.Y;
+Scroll.ZIndex=191; Scroll.Parent=Panel;
+
+local LL = Instance.new("UIListLayout",Scroll);
+LL.Padding=UDim.new(0,0); LL.SortOrder=Enum.SortOrder.LayoutOrder;
+
+local LP2 = Instance.new("UIPadding",Scroll);
+LP2.PaddingLeft=UDim.new(0,7); LP2.PaddingRight=UDim.new(0,7);
+LP2.PaddingTop=UDim.new(0,3); LP2.PaddingBottom=UDim.new(0,5);
+
+local _ro = 0;
+
+local function Sect(txt)
+    _ro = _ro + 1;
+    local f = MkFrame(Scroll,RGB(8,9,15),UDim2.new(1,0,0,17),UDim2.new(0,0,0,0),191);
+    f.LayoutOrder=_ro; f.BackgroundTransparency=1;
+    MkLabel(f,txt,8,RGB(38,68,105),UDim2.new(1,0,1,0),UDim2.new(0,0,0,0),192,Enum.Font.GothamBold);
+end;
+
+local function MakePill(parent)
+    local pill=MkBtn(parent,UDim2.new(0,26,0,12),UDim2.new(1,-26,0.5,-6),193);
+    pill.BackgroundColor3=RGB(18,18,30); pill.BackgroundTransparency=0;
+    Rnd(pill,6);
+    local knob=MkFrame(pill,RGB(55,55,80),UDim2.new(0,8,0,8),UDim2.new(0,2,0.5,-4),194);
+    Rnd(knob,4);
+    return pill,knob;
+end;
+
+local function MakeRowBase(txt)
+    _ro=_ro+1;
+    local row=MkFrame(Scroll,RGB(8,9,15),UDim2.new(1,0,0,24),UDim2.new(0,0,0,0),191);
+    row.LayoutOrder=_ro; row.BackgroundTransparency=1;
+    MkLabel(row,txt,10,RGB(145,165,190),UDim2.new(1,-34,1,0),UDim2.new(0,0,0,0),192);
+    return row;
+end;
+
+local function Row(txt,key)
+    local row=MakeRowBase(txt);
+    local pill,knob=MakePill(row);
+    local function Ref()
+        local on=CFG[key];
+        pill.BackgroundColor3=on and RGB(25,90,235) or RGB(18,18,30);
+        TweenService:Create(knob,TweenInfo.new(0.12),{
+            Position=on and UDim2.new(0,16,0.5,-4) or UDim2.new(0,2,0.5,-4),
+            BackgroundColor3=on and RGB(130,180,255) or RGB(55,55,80),
+        }):Play();
     end;
+    Ref();
+    pill.MouseButton1Click:Connect(function() CFG[key]=not CFG[key]; Ref(); end);
+end;
+
+local function RowFn(txt,getter,setter)
+    local row=MakeRowBase(txt);
+    local pill,knob=MakePill(row);
+    local function Ref()
+        local on=getter();
+        pill.BackgroundColor3=on and RGB(25,90,235) or RGB(18,18,30);
+        TweenService:Create(knob,TweenInfo.new(0.12),{
+            Position=on and UDim2.new(0,16,0.5,-4) or UDim2.new(0,2,0.5,-4),
+            BackgroundColor3=on and RGB(130,180,255) or RGB(55,55,80),
+        }):Play();
+    end;
+    Ref();
+    pill.MouseButton1Click:Connect(function() setter(); Ref(); end);
+end;
+
+local function DropRow(txt,key,options)
+    _ro=_ro+1;
+    local row=MkFrame(Scroll,RGB(8,9,15),UDim2.new(1,0,0,24),UDim2.new(0,0,0,0),191);
+    row.LayoutOrder=_ro; row.BackgroundTransparency=1;
+    MkLabel(row,txt,10,RGB(145,165,190),UDim2.new(1,-72,1,0),UDim2.new(0,0,0,0),192);
+    local db=MkBtn(row,UDim2.new(0,66,0,14),UDim2.new(1,-66,0.5,-7),192);
+    db.BackgroundColor3=RGB(10,16,30); db.BackgroundTransparency=0;
+    db.Text=tostring(CFG[key]); db.TextColor3=RGB(70,148,255);
+    db.TextSize=8; db.Font=Enum.Font.GothamBold;
+    Rnd(db,3);
+    local idx=1;
+    for i,v in ipairs(options) do if tostring(v)==tostring(CFG[key]) then idx=i; break; end; end;
+    db.MouseButton1Click:Connect(function()
+        idx=(idx%#options)+1; CFG[key]=options[idx]; db.Text=tostring(options[idx]);
+    end);
+end;
+
+-- Build rows
+Sect("EXPLOIT");
+Row("Reload Exploit","ReloadExploit");
+Row("Reload Loop","ReloadLoop");
+Row("No Spread","NoSpread");
+Row("Full Auto","FullAuto");
+
+Sect("RESOLVER");
+Row("Standard Resolver","Resolver");
+Row("Auto-Learn","AutoLearn");
+Row("Anti-Bait","AntiBait");
+Row("Advanced Mode","AdvancedMode");
+Row("Yaw Scoring","YawScoring");
+
+Sect("VOID RES");
+Row("Anti-Void Resolve","AntiVoidResolve");
+DropRow("Mode","VoidResolveMode",{"Adaptive","Extrapolate","Average","Last"});
+
+Sect("PROTECTION");
+Row("Self Anti-Void","SelfAntiVoid");
+Row("Anti-AFK","AntiAFK");
+Row("FPS Uncap","FPSUncap");
+
+do
+    _ro=_ro+1;
+    local nf=MkFrame(Scroll,RGB(8,9,15),UDim2.new(1,0,0,13),UDim2.new(0,0,0,0),191);
+    nf.LayoutOrder=_ro; nf.BackgroundTransparency=1;
+    MkLabel(nf, IsMobile and "Void: tap VOID button" or "Void: press G",
+        8,RGB(40,72,45),UDim2.new(1,0,1,0),UDim2.new(0,0,0,0),192);
+end;
+
+Sect("GRAPHICS");
+RowFn("Low Detail",
+    function() return LowDetailActive; end,
+    function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; end);
+
+Sect("SLINGSHOT");
+RowFn("OP Mode",
+    function() return SlingshotOP; end,
+    function() SlingshotOP = not SlingshotOP; end);
+
+-- Auto-resize
+local function ResizePanel()
+    local h   = LL.AbsoluteContentSize.Y + 25 + 5;
+    local cap = math.min(h, 340);
+    local px  = Panel.Position.X.Offset;
+    Panel.Size     = UDim2.new(0,196,0,cap);
+    Panel.Position = UDim2.new(0,px,1,-(cap+6));
+end;
+LL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(ResizePanel);
+task.defer(ResizePanel);
+
+-- Open/close
+local PanelOpen = false;
+TBtn.MouseButton1Click:Connect(function()
+    PanelOpen = not PanelOpen;
+    Panel.Visible = PanelOpen;
+    TBtn.BackgroundColor3 = PanelOpen and RGB(10,16,30) or RGB(8,10,18);
+end);
+
+-- Drag
+do
+    local drag,dsx,dsy,dpx,dpy=false,0,0,0,0;
+    TBar.InputBegan:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then
+            drag=true; dsx=inp.Position.X; dsy=inp.Position.Y;
+            dpx=Panel.Position.X.Offset; dpy=Panel.Position.Y.Offset;
+        end;
+    end);
+    TBar.InputEnded:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then drag=false; end;
+    end);
+    UserInputService.InputChanged:Connect(function(inp)
+        if not drag then return; end;
+        if inp.UserInputType~=Enum.UserInputType.MouseMovement
+        and inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+        local nx=dpx+(inp.Position.X-dsx); local ny=dpy+(inp.Position.Y-dsy);
+        Panel.Position = UDim2.new(0,nx,1,ny);
+        TBtn.Position  = UDim2.new(0,nx,1,ny+Panel.AbsoluteSize.Y+4);
+    end);
+end;
+
+-- =============================================================
+--  VOID UI (device specific)
+-- =============================================================
+local VS_SG = Instance.new("ScreenGui");
+VS_SG.Name           = IsMobile and "UEVoidBtn" or "UEVoidHint";
+VS_SG.ResetOnSpawn   = false;
+VS_SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+VS_SG.IgnoreGuiInset = true;
+VS_SG.DisplayOrder   = 998;
+VS_SG.Parent         = GUI_PARENT;
+
+if IsMobile then
+    local VBtn=MkBtn(VS_SG,UDim2.new(0,42,0,22),UDim2.new(0,58,1,-32),300);
+    VBtn.BackgroundColor3=RGB(30,6,6); VBtn.BackgroundTransparency=0;
+    VBtn.Text="VOID"; VBtn.TextColor3=RGB(235,60,60);
+    VBtn.TextSize=10; VBtn.Font=Enum.Font.GothamBold;
+    Rnd(VBtn,5); Bdr(VBtn,RGB(65,10,10),1);
+    local VDot=MkFrame(VBtn,RGB(60,60,75),UDim2.new(0,5,0,5),UDim2.new(1,-7,0,3),301);
+    Rnd(VDot,10);
+    local function RefV()
+        if VOID_CFG.Enabled then
+            VBtn.BackgroundColor3=RGB(75,10,10); VBtn.TextColor3=RGB(255,95,95);
+            VDot.BackgroundColor3=RGB(45,205,90);
+        else
+            VBtn.BackgroundColor3=RGB(30,6,6); VBtn.TextColor3=RGB(235,60,60);
+            VDot.BackgroundColor3=RGB(60,60,75);
+        end;
+    end;
+    VBtn.MouseButton1Click:Connect(function() VS_Toggle(); RefV(); end);
+    do
+        local vd,vdsx,vdsy,vdpx,vdpy=false,0,0,0,0;
+        VBtn.InputBegan:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch then
+                vd=true; vdsx=inp.Position.X; vdsy=inp.Position.Y;
+                vdpx=VBtn.Position.X.Offset; vdpy=VBtn.Position.Y.Offset;
+            end;
+        end);
+        VBtn.InputEnded:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.Touch then vd=false; end;
+        end);
+        UserInputService.InputChanged:Connect(function(inp)
+            if not vd then return; end;
+            if inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+            VBtn.Position=UDim2.new(0,vdpx+(inp.Position.X-vdsx),1,vdpy+(inp.Position.Y-vdsy));
+        end);
+    end;
+else
+    local Hint=MkLabel(VS_SG,"G  -  Void: OFF",10,RGB(125,140,160),
+        UDim2.new(0,148,0,19),UDim2.new(0.5,-74,1,-26),300,Enum.Font.GothamBold,Enum.TextXAlignment.Center);
+    Hint.BackgroundColor3=RGB(8,9,15); Hint.BackgroundTransparency=0.25;
+    Rnd(Hint,4);
+    local function RefH()
+        Hint.Text=VOID_CFG.Enabled and "G  -  Void: ON" or "G  -  Void: OFF";
+        Hint.TextColor3=VOID_CFG.Enabled and RGB(48,205,95) or RGB(125,140,160);
+    end;
+    UserInputService.InputBegan:Connect(function(inp,gpe)
+        if gpe then return; end;
+        if inp.KeyCode==Enum.KeyCode.G then VS_Toggle(); RefH(); end;
+    end);
+end;
+
+-- =============================================================
+--  TRACKER HUD (bottom-right, draggable)
+-- =============================================================
+local TR_SG = Instance.new("ScreenGui");
+TR_SG.Name           = "UETrackerGui";
+TR_SG.ResetOnSpawn   = false;
+TR_SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
+TR_SG.IgnoreGuiInset = true;
+TR_SG.DisplayOrder   = 997;
+TR_SG.Parent         = GUI_PARENT;
+
+local TrBox = MkFrame(TR_SG,RGB(6,7,12),UDim2.new(0,148,0,10),UDim2.new(1,-156,1,-225),400);
+TrBox.AutomaticSize = Enum.AutomaticSize.Y;
+Rnd(TrBox,7); Bdr(TrBox,RGB(14,24,40),1);
+
+local TrPad=Instance.new("UIPadding",TrBox);
+TrPad.PaddingLeft=UDim.new(0,7); TrPad.PaddingRight=UDim.new(0,7);
+TrPad.PaddingTop=UDim.new(0,5); TrPad.PaddingBottom=UDim.new(0,5);
+
+local TrList=Instance.new("UIListLayout",TrBox);
+TrList.Padding=UDim.new(0,0); TrList.SortOrder=Enum.SortOrder.LayoutOrder;
+
+local TrHdr=MkLabel(TrBox,"UE TRACKER",9,RGB(70,148,255),
+    UDim2.new(1,0,0,14),UDim2.new(0,0,0,0),401,Enum.Font.GothamBold);
+TrHdr.LayoutOrder=0; TrHdr.Active=true;
+
+local TrDiv=MkFrame(TrBox,RGB(14,24,40),UDim2.new(1,0,0,1),UDim2.new(0,0,0,0),401);
+TrDiv.LayoutOrder=1; TrDiv.BackgroundTransparency=0;
+
+local trRows={};
+local tro=2;
+local function TRow(key)
+    local l=MkLabel(TrBox,"",9,RGB(130,150,175),UDim2.new(1,0,0,12),UDim2.new(0,0,0,0),401);
+    l.LayoutOrder=tro; tro=tro+1; trRows[key]=l;
+end;
+TRow("kills"); TRow("deaths"); TRow("kd"); TRow("hitrate"); TRow("shots");
+TRow("resolver"); TRow("void"); TRow("sling"); TRow("slingop"); TRow("ld");
+TRow("fps"); TRow("uptime");
+
+-- Drag tracker
+do
+    local td,tdsx,tdsy,tdpx,tdpy=false,0,0,0,0;
+    TrHdr.InputBegan:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then
+            td=true; tdsx=inp.Position.X; tdsy=inp.Position.Y;
+            tdpx=TrBox.Position.X.Offset; tdpy=TrBox.Position.Y.Offset;
+        end;
+    end);
+    TrHdr.InputEnded:Connect(function(inp)
+        if inp.UserInputType==Enum.UserInputType.MouseButton1
+        or inp.UserInputType==Enum.UserInputType.Touch then td=false; end;
+    end);
+    UserInputService.InputChanged:Connect(function(inp)
+        if not td then return; end;
+        if inp.UserInputType~=Enum.UserInputType.MouseMovement
+        and inp.UserInputType~=Enum.UserInputType.Touch then return; end;
+        TrBox.Position=UDim2.new(1,tdpx+(inp.Position.X-tdsx),1,tdpy+(inp.Position.Y-tdsy));
+    end);
+end;
+
+-- FPS
+local _ff,_fl,_fv=0,tick(),0;
+RunService.Heartbeat:Connect(function()
+    _ff=_ff+1; local n=tick();
+    if n-_fl>=0.5 then _fv=math.floor(_ff/(n-_fl)); _ff=0; _fl=n; end;
+end);
+
+local function Fmt(lbl,val)
+    return lbl..string.rep(" ",math.max(1,10-#lbl))..tostring(val);
+end;
+
+local function GetPhase()
+    local best,phase=0,"collecting";
+    for _,rd in pairs(DB) do
+        if rd.rPhase=="optimized" and rd.rConfidence>best then
+            best=rd.rConfidence; phase="opt "..rd.rConfidence.."%";
+        elseif rd.rPhase=="testing" and phase=="collecting" then
+            phase="testing";
+        end;
+    end;
+    return phase;
 end;
 
 task.spawn(function()
-    while trGui.Parent do
-        task.wait(0.1);
+    while TR_SG.Parent do
+        task.wait(0.15);
+        local kd = TRACKER.Deaths>0
+            and string.format("%.2f",TRACKER.Kills/TRACKER.Deaths)
+            or tostring(TRACKER.Kills);
+        local hr = TRACKER.Shots>0
+            and math.floor(TRACKER.Hits/TRACKER.Shots*100).."%"
+            or "0%";
+        local upt=math.floor(tick()-TRACKER.StartTime);
+        local us=upt<60 and upt.."s" or math.floor(upt/60).."m "..upt%60 .."s";
 
-        local kd    = TRACKER.Deaths > 0 and TRACKER.Kills / TRACKER.Deaths or TRACKER.Kills;
-        local hr    = TRACKER.Shots  > 0 and math.floor(TRACKER.Hits / TRACKER.Shots * 100) or 0;
-        local upt   = math.floor(tick() - TRACKER.StartTime);
-        local uptStr = upt < 60 and upt.."s"
-                    or (math.floor(upt/60).."m "..upt%60 .."s");
+        trRows["kills"].Text    = Fmt("Kills",    TRACKER.Kills);
+        trRows["deaths"].Text   = Fmt("Deaths",   TRACKER.Deaths);
+        trRows["kd"].Text       = Fmt("K/D",      kd);
+        trRows["hitrate"].Text  = Fmt("Hit Rate", hr);
+        trRows["shots"].Text    = Fmt("Shots",    TRACKER.Shots);
+        trRows["resolver"].Text = Fmt("Resolver", GetPhase());
+        trRows["void"].Text     = Fmt("Void",     VOID_CFG.Enabled and "ON" or "off");
+        trRows["sling"].Text    = Fmt("Sling",    HoldingSlingshot and "ACTIVE" or "off");
+        trRows["slingop"].Text  = Fmt("Sling OP", SlingshotOP and "ON" or "off");
+        trRows["ld"].Text       = Fmt("Low Detail",LowDetailActive and "ON" or "off");
+        trRows["fps"].Text      = Fmt("FPS",      _fv);
+        trRows["uptime"].Text   = Fmt("Uptime",   us);
 
-        trRows["kills"].Text    = FormatRow("Kills",       TRACKER.Kills);
-        trRows["deaths"].Text   = FormatRow("Deaths",      TRACKER.Deaths);
-        trRows["kd"].Text       = FormatRow("K/D",         string.format("%.2f", kd));
-        trRows["hitrate"].Text  = FormatRow("Hit Rate",    hr.."%");
-        trRows["shots"].Text    = FormatRow("Shots",       TRACKER.Shots);
-        trRows["resolver"].Text = FormatRow("Resolver",    GetResolverPhase());
-        trRows["void"].Text     = FormatRow("Void",        VOID_CFG.Enabled and "ON" or "OFF");
-        trRows["sling"].Text    = FormatRow("Slingshot",   HoldingSlingshot and "ACTIVE" or "off");
-        trRows["ld"].Text       = FormatRow("Low Detail",  LowDetailActive and "ON" or "OFF");
-        trRows["fps"].Text      = FormatRow("FPS",         FPS_value);
-        trRows["uptime"].Text   = FormatRow("Uptime",      uptStr);
-
-        -- Color code K/D
-        if kd >= 2 then
-            trRows["kd"].TextColor3 = Color3.fromRGB(80, 220, 120);
-        elseif kd >= 1 then
-            trRows["kd"].TextColor3 = Color3.fromRGB(220, 200, 80);
-        else
-            trRows["kd"].TextColor3 = Color3.fromRGB(220, 80, 80);
-        end;
-
-        -- Color code FPS
-        if FPS_value >= 55 then
-            trRows["fps"].TextColor3 = Color3.fromRGB(80, 220, 120);
-        elseif FPS_value >= 30 then
-            trRows["fps"].TextColor3 = Color3.fromRGB(220, 200, 80);
-        else
-            trRows["fps"].TextColor3 = Color3.fromRGB(220, 80, 80);
-        end;
-
-        -- Void status color
-        trRows["void"].TextColor3 = VOID_CFG.Enabled
-            and Color3.fromRGB(80, 220, 120)
-            or  Color3.fromRGB(160, 175, 195);
-
-        -- Slingshot active color
-        trRows["sling"].TextColor3 = HoldingSlingshot
-            and Color3.fromRGB(74, 158, 255)
-            or  Color3.fromRGB(100, 100, 120);
+        local kdn=tonumber(kd) or 0;
+        trRows["kd"].TextColor3    = kdn>=2 and RGB(50,200,90) or kdn>=1 and RGB(200,180,50) or RGB(200,60,60);
+        trRows["fps"].TextColor3   = _fv>=55 and RGB(50,200,90) or _fv>=30 and RGB(200,180,50) or RGB(200,60,60);
+        trRows["void"].TextColor3  = VOID_CFG.Enabled and RGB(50,200,90) or RGB(90,90,110);
+        trRows["sling"].TextColor3 = HoldingSlingshot and RGB(70,148,255) or RGB(90,90,110);
+        trRows["slingop"].TextColor3 = SlingshotOP and RGB(240,140,40) or RGB(90,90,110);
     end;
 end);
 
--- Hook OnHit/OnMiss to update tracker shot counts
-local _origOnHit  = OnHit;
-local _origOnMiss = OnMiss;
-OnHit = function(player)
-    TRACKER.Hits  += 1;
-    TRACKER.Shots += 1;
-    _origOnHit(player);
-end;
-OnMiss = function(player)
-    TRACKER.Shots += 1;
-    _origOnMiss(player);
-end;
--- Re-expose updated versions
-if getgenv and getgenv().UERage then
-    getgenv().UERage.OnHit  = OnHit;
-    getgenv().UERage.OnMiss = OnMiss;
-end;
+-- Hook OnHit/OnMiss
+local _roh=OnHit; local _rom=OnMiss;
+OnHit=function(p) TRACKER.Hits=TRACKER.Hits+1; TRACKER.Shots=TRACKER.Shots+1; _roh(p); end;
+OnMiss=function(p) TRACKER.Shots=TRACKER.Shots+1; _rom(p); end;
 
--- ── Low Detail toggle from GUI (add to existing GUI section) ─────
--- (Exposed via global so it can be called from GUI toggle row)
-if getgenv and getgenv().UERage then
-    getgenv().UERage.LowDetailToggle = function()
-        if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end;
-        return LowDetailActive;
-    end;
-    getgenv().UERage.Tracker = TRACKER;
+-- Update globals
+if getgenv then
+    local ue=getgenv().UERage or {};
+    ue.OnHit            = OnHit;
+    ue.OnMiss           = OnMiss;
+    ue.VS_Toggle        = VS_Toggle;
+    ue.VOID_CFG         = VOID_CFG;
+    ue.Tracker          = TRACKER;
+    ue.LDToggle         = function() if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end; return LowDetailActive; end;
+    ue.SlingshotOP      = function(v) if v~=nil then SlingshotOP=v; end; return SlingshotOP; end;
+    getgenv().UERage    = ue;
 end;
 
--- Add Low Detail row to panel GUI (inject after panel is built)
--- We do this by finding the ScrollFrame and adding a row
-task.defer(function()
-    -- Find existing scroll frame in the UERageGui panel
-    local sg = GUI_PARENT:FindFirstChild("UERageGui");
-    if not sg then return; end;
-    local panel = sg:FindFirstChild("Frame"); -- Panel
-    if not panel then return; end;
-    local sf = panel:FindFirstChildOfClass("ScrollingFrame");
-    if not sf then return; end;
-    local layout = sf:FindFirstChildOfClass("UIListLayout");
-
-    -- Section
-    local sec = Instance.new("Frame");
-    sec.Size = UDim2.new(1,-16,0,18);
-    sec.BackgroundTransparency = 1;
-    sec.LayoutOrder = 50;
-    sec.Parent = sf;
-    local secLbl = Instance.new("TextLabel", sec);
-    secLbl.Size = UDim2.new(1,0,1,0);
-    secLbl.BackgroundTransparency = 1;
-    secLbl.Text = "GRAPHICS";
-    secLbl.TextColor3 = Color3.fromRGB(40,70,100);
-    secLbl.TextSize = 9;
-    secLbl.Font = Enum.Font.GothamBold;
-    secLbl.TextXAlignment = Enum.TextXAlignment.Left;
-    secLbl.BorderSizePixel = 0;
-
-    -- Toggle row
-    local row = Instance.new("Frame");
-    row.Size = UDim2.new(1,-16,0,28);
-    row.BackgroundTransparency = 1;
-    row.LayoutOrder = 51;
-    row.Parent = sf;
-
-    local lbl = Instance.new("TextLabel", row);
-    lbl.Size = UDim2.new(1,-40,1,0);
-    lbl.BackgroundTransparency = 1;
-    lbl.Text = "Low Detail";
-    lbl.TextColor3 = Color3.fromRGB(138,168,200);
-    lbl.TextSize = 10;
-    lbl.Font = Enum.Font.Gotham;
-    lbl.TextXAlignment = Enum.TextXAlignment.Left;
-    lbl.BorderSizePixel = 0;
-
-    local pill = Instance.new("TextButton", row);
-    pill.Size = UDim2.new(0,32,0,16);
-    pill.Position = UDim2.new(1,-32,0.5,-8);
-    pill.BackgroundColor3 = Color3.fromRGB(26,26,42);
-    pill.BorderSizePixel = 0;
-    pill.Text = "";
-    pill.AutoButtonColor = false;
-    do local c = Instance.new("UICorner",pill); c.CornerRadius = UDim.new(0,8); end;
-
-    local knob = Instance.new("Frame", pill);
-    knob.Size = UDim2.new(0,11,0,11);
-    knob.Position = UDim2.new(0,2,0.5,-5);
-    knob.BackgroundColor3 = Color3.fromRGB(74,74,106);
-    knob.BorderSizePixel = 0;
-    do local c = Instance.new("UICorner",knob); c.CornerRadius = UDim.new(0,6); end;
-
-    local function RefLD()
-        pill.BackgroundColor3 = LowDetailActive and Color3.fromRGB(26,90,255) or Color3.fromRGB(26,26,42);
-        TweenService:Create(knob, TweenInfo.new(0.13), {
-            Position = LowDetailActive and UDim2.new(0,19,0.5,-5) or UDim2.new(0,2,0.5,-5),
-            BackgroundColor3 = LowDetailActive and Color3.fromRGB(160,200,255) or Color3.fromRGB(74,74,106),
-        }):Play();
-    end;
-    RefLD();
-
-    pill.MouseButton1Click:Connect(function()
-        if LowDetailActive then RemoveLowDetail(); else ApplyLowDetail(); end;
-        RefLD();
-    end);
-end);
-
--- ─────────────────────────────────────────────────────────────────
+-- =============================================================
 --  DONE
--- ─────────────────────────────────────────────────────────────────
-print("[UE Rage v6] Loaded");
-print("  Standard Resolver:  " .. (CFG.Resolver and "ON" or "OFF"));
-print("  Anti-Bait Resolver: " .. (CFG.AntiBait and "ON" or "OFF"));
-print("  Void Resolver:      " .. CFG.VoidResolveMode);
-print("  Slingshot Opt:      ON (pred tuned to distance + 200ms ping)");
-print("  Low Detail:         OFF (toggle in panel)");
-print("  Tracker HUD:        bottom-right");
+-- =============================================================
+print("[UE Rage v7] Loaded");
+print("  Resolver ON | Anti-Bait ON | Void: " .. CFG.VoidResolveMode);
+print("  Sling OP: OFF | Low Detail: OFF | Void Spam: toggle with G/VOID btn");
+print("  Tracker: bottom-right draggable | Panel: lower-left draggable");
